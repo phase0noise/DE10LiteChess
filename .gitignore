@@ -1,0 +1,15 @@
+.cache/
+db/
+incremental_db/
+output_files/*
+!output_files/.gitkeep
+!output_files/de10_chess.sof
+!output_files/de10_chess.pof
+!output_files/pico_chess.uf2
+!output_files/build_manifest.json
+__pycache__/
+*.pyc
+*.qws
+work/
+transcript
+vsim.wlf
