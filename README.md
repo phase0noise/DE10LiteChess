@@ -40,6 +40,12 @@ threefold/fifty-move draw claims. Change lookahead between Spatial, 2 ply, and
 3 ply. **Play FPGA turn** resumes after a stopped search or a reconnect.
 Saved history is local to your browser; use one controlling browser tab.
 
+Dark mode is the default; the header's light/dark toggle remembers your choice.
+Drag pieces with a mouse or finger, or tap a piece and its destination. Illegal
+and off-board drops leave the piece in place, and promotions still offer all
+four pieces. The page stays still for gestures that start on the board; start a
+swipe outside the board to scroll the page.
+
 **KEY0** resets the endpoint. **KEY1** starts evaluation on the currently loaded
 position for bench diagnostics. LEDR9 indicates engine activity, LEDR8 the side
 to move (off: white, on: black), and LEDR7..0 the recurrent field. HEX3..0 show

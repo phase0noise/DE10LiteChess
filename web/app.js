@@ -3,7 +3,16 @@
   const {Game,decode,square}=ChessRules;
   const $=id=>document.getElementById(id),game=new Game(),fpga=new FpgaChess.Fpga();
   let human=0,flipped=false,selected=null,legal=[],busy=false,connected=false,cancel=false,claimed=false;
+  let drag=null,suppressClick=false;
   const names=['','pawn','knight','bishop','rook','queen','king'];
+  function applyTheme(theme) {
+    const dark=theme!=='light';
+    document.documentElement.dataset.theme=dark?'dark':'light';
+    document.querySelector('meta[name="theme-color"]').content=dark?'#111c18':'#f6f4ed';
+    $('theme').textContent=dark?'Light mode':'Dark mode';
+    $('theme').setAttribute('aria-label',`Switch to ${dark?'light':'dark'} theme`);
+    try {localStorage.setItem('fpga-chess-theme',dark?'dark':'light');} catch(_) {}
+  }
   function save() {
     try{localStorage.setItem('fpga-chess-game',JSON.stringify({moves:game.history.map(h=>h.move),human,depth:Number($('depth').value),claimed}));}catch(_){}
   }
@@ -61,6 +70,68 @@
     }
     moves.scrollTop=moves.scrollHeight;
   }
+  function canMove() {return !busy&&connected&&game.position.turn===human&&!game.outcome()&&!claimed;}
+  function squareAt(x,y) {
+    const element=document.elementFromPoint(x,y)?.closest('.square');
+    return element&&$('board').contains(element)?element:null;
+  }
+  function clearDrag() {
+    const previous=drag;drag=null;
+    if(!previous) return null;
+    previous.ghost?.remove();
+    $('board').classList.remove('dragging');
+    $('board').querySelectorAll('.drag-origin,.drop-target').forEach(element=>element.classList.remove('drag-origin','drop-target'));
+    if($('board').hasPointerCapture(previous.id)) $('board').releasePointerCapture(previous.id);
+    return previous;
+  }
+  function cancelDrag() {if(clearDrag()?.moving) render();}
+  const board=$('board');
+  board.addEventListener('pointerdown',event=>{
+    if(!event.isPrimary||event.button!==0||!canMove()||drag) return;
+    const element=event.target.closest('.square');
+    if(!element||!board.contains(element)) return;
+    const from=Number(element.dataset.square),piece=game.position.board[from];
+    if(!piece||(piece>>3)!==human) return;
+    drag={id:event.pointerId,from,piece,position:game.position,x:event.clientX,y:event.clientY,moving:false,ghost:null};
+  });
+  window.addEventListener('pointermove',event=>{
+    if(!drag||event.pointerId!==drag.id) return;
+    if(busy||!connected||claimed||game.position!==drag.position) {cancelDrag();return;}
+    if(!drag.moving) {
+      if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<7) return;
+      selected=drag.from;render();drag.moving=true;
+      const origin=board.querySelector(`[data-square="${drag.from}"]`);
+      origin.classList.add('drag-origin');
+      drag.size=origin.getBoundingClientRect().width;
+      drag.ghost=pieceElement(drag.piece);drag.ghost.classList.add('drag-piece');
+      drag.ghost.style.width=drag.ghost.style.height=`${drag.size}px`;
+      document.body.append(drag.ghost);board.classList.add('dragging');
+      board.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+    drag.ghost.style.transform=`translate3d(${event.clientX-drag.size/2}px,${event.clientY-drag.size/2}px,0)`;
+    board.querySelector('.drop-target')?.classList.remove('drop-target');
+    const target=squareAt(event.clientX,event.clientY);
+    if(target&&legal.some(move=>{const d=decode(move);return d.from===drag.from&&d.to===Number(target.dataset.square);})) target.classList.add('drop-target');
+  },{passive:false});
+  window.addEventListener('pointerup',event=>{
+    if(!drag||event.pointerId!==drag.id) return;
+    const target=squareAt(event.clientX,event.clientY),previous=clearDrag();
+    if(!previous.moving) return;
+    event.preventDefault();suppressClick=true;setTimeout(()=>{suppressClick=false;},0);
+    selected=previous.from;
+    const to=target?Number(target.dataset.square):null;
+    if(to!==null&&legal.some(move=>{const d=decode(move);return d.from===selected&&d.to===to;})) clickSquare(to);
+    else render();
+  });
+  window.addEventListener('pointercancel',event=>{if(drag?.id===event.pointerId) cancelDrag();});
+  board.addEventListener('lostpointercapture',event=>{if(drag?.id===event.pointerId) cancelDrag();});
+  window.addEventListener('blur',cancelDrag);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden) cancelDrag();});
+  board.addEventListener('click',event=>{if(suppressClick){event.preventDefault();event.stopImmediatePropagation();suppressClick=false;}},{capture:true});
+  board.addEventListener('contextmenu',event=>event.preventDefault());
+  board.addEventListener('dragstart',event=>event.preventDefault());
+  board.addEventListener('wheel',event=>event.preventDefault(),{passive:false});
   function message(text,error=false) {$('message').textContent=text;$('message').classList.toggle('error',error);}
   function connection(on) {
     connected=on;const element=$('connection');element.className='connection '+(on?'online':'offline');
@@ -100,7 +171,7 @@
     });
   }
   async function clickSquare(s) {
-    if(busy||!connected||game.position.turn!==human||game.outcome()||claimed) return;
+    if(!canMove()) return;
     const p=game.position;
     if(selected!==null) {
       const choices=legal.filter(m=>{const d=decode(m);return d.from===selected&&d.to===s;});
@@ -114,14 +185,16 @@
     selected=p.board[s]&&(p.board[s]>>3)===human?(selected===s?null:s):null;render();
   }
   $('connect').onclick=connect;
+  $('theme').onclick=()=>applyTheme(document.documentElement.dataset.theme==='dark'?'light':'dark');
   $('new-game').onclick=async()=>{
+    cancelDrag();
     game.reset();claimed=false;human=Number($('side').value);flipped=!!human;selected=null;save();render();message('A fresh board. Make it yours.');
     await engineTurn();
   };
   $('side').onchange=()=>message('Your color will apply when you start a new game.');
   $('depth').onchange=save;
-  $('flip').onclick=()=>{flipped=!flipped;render();};
-  $('undo').onclick=()=>{game.undoTurn(human);selected=null;claimed=false;save();render();message('Previous turn restored.');};
+  $('flip').onclick=()=>{cancelDrag();flipped=!flipped;render();};
+  $('undo').onclick=()=>{cancelDrag();game.undoTurn(human);selected=null;claimed=false;save();render();message('Previous turn restored.');};
   $('resume').onclick=engineTurn;
   $('stop').onclick=()=>{cancel=true;message('Stopping after the current command…');};
   $('claim').onclick=()=>{claimed=true;save();render();message('Draw claimed.');};
@@ -130,5 +203,6 @@
     const url=URL.createObjectURL(new Blob([game.pgn(result)],{type:'application/x-chess-pgn'}));
     const a=document.createElement('a');a.href=url;a.download='fpga-chess.pgn';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
-  restore();render();connect();
+  let theme='dark';try {theme=localStorage.getItem('fpga-chess-theme')||theme;} catch(_) {}
+  applyTheme(theme);restore();render();connect();
 })();

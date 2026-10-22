@@ -13,3 +13,4 @@ __pycache__/
 work/
 transcript
 vsim.wlf
+debug.log

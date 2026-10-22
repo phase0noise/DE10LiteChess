@@ -31,8 +31,12 @@ that all firmware/browser assets are present. It also checks the staged ZIP.
   cancellation, and explicit disconnected-hardware errors.
 - **Chrome desktop and 390 px mobile** checks pass: connection, selection,
   legal destinations, human move, an explicitly simulated FPGA reply, history,
-  undo, flipping and reload. Screenshots were inspected. This UI test uses a
-  simulated protocol endpoint and does not establish physical FPGA operation.
+  undo, flipping and reload. The October 22 UI update also passes persisted
+  light/dark themes, mouse and touch dragging, illegal/off-board/cancelled drops,
+  dragging on a flipped board, promotion selection/cancellation, blocked page
+  scrolling over the board, and working page scrolling outside it. Screenshots
+  were inspected. This UI test uses a simulated protocol endpoint and does not
+  establish physical FPGA operation or acceptance on an actual phone.
 
 Tools: GHDL 6.0.0; python-chess 1.11.2; Node.js 22.18.0; GCC 7.4.0; Chrome.
 
