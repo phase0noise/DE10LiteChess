@@ -27,18 +27,23 @@
     async status() {
       const a=await this.command(0);
       if(a.length!==32||String.fromCharCode(...a.slice(0,4))!=='SCF1'||a[15]<3) throw Error('Program the DE10-Lite chess image first.');
-      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),cycles:u32(a,16),generation:u32(a,20),version:a[15]};
+      this.version=a[15];
+      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),cycles:u32(a,16),generation:u32(a,20),version:a[15],searchDepth:a[15]>=4?a[28]:0,completedDepth:a[15]>=4?a[29]:0};
     }
-    async setDepth(depth) {
-      if(![0,2,3].includes(depth)) throw Error('Unsupported search depth.');
+    async setDepth(depth,timeSeconds=10) {
+      if(![0,2,3,4,5,6].includes(depth)) throw Error('Unsupported search depth.');
+      if(!Number.isInteger(timeSeconds)||timeSeconds<1||timeSeconds>60) throw Error('Think time must be 1 to 60 seconds.');
+      if(this.version===undefined) await this.status();
+      if(depth>3&&this.version<4) throw Error('Load the expanded DE10-Lite FPGA image to use deeper search.');
       const policy=await this.command(12,[0]);
       if(policy.length!==64) throw Error('Invalid policy page.');
       policy[10]=depth;
+      if(this.version>=4) policy[40]=timeSeconds;
       await this.command(13,[0,...policy]);
     }
-    async evaluate(game,{cancelled=()=>false,progress=()=>{},depth=3}={}) {
+    async evaluate(game,{cancelled=()=>false,progress=()=>{},depth=5,timeSeconds=10}={}) {
       const position=game.position,expected=position.positionBytes(),legal=position.legalMoves();
-      await this.command(3);await this.setDepth(depth);await this.command(1,expected);
+      await this.command(3);await this.setDepth(depth,timeSeconds);await this.command(1,expected);
       const recent=game.history.slice(-8).reverse().map(h=>h.move);
       await this.command(17,[recent.length,...recent.flatMap(m=>[m>>8,m&255])]);
       if(cancelled()) throw Error('Stopped.');
@@ -66,13 +71,15 @@
         if(!legal.length) return {move:null,cycles:status.cycles,nodes:0};
         if(!actual.includes(status.move)) throw Error('FPGA selected a move absent from its legal set.');
         const telemetry=await this.command(18);
-        if(telemetry.length!==10) throw Error('Invalid FPGA search telemetry.');
+        if(![10,20].includes(telemetry.length)) throw Error('Invalid FPGA search telemetry.');
         if(cancelled()) throw Error('Stopped.');
         const g=status.generation,m=status.move;
         await this.command(11,[g>>>24,(g>>>16)&255,(g>>>8)&255,g&255,m>>8,m&255]);
         const result=position.clone().make(m).positionBytes();
         if(!same(await this.command(5),result)) throw Error('FPGA move commit did not match the expected board. Reconnect to retry.');
-        return {move:m,cycles:status.cycles,nodes:u32(telemetry,0)};
+        return {move:m,cycles:status.cycles,nodes:u32(telemetry,0),depth:telemetry.length===20?telemetry[10]:telemetry[8],
+          targetDepth:telemetry[8],cacheHits:telemetry.length===20?u32(telemetry,12):0,
+          cacheStores:telemetry.length===20?u32(telemetry,16):0,budgetExpired:telemetry.length===20&&!!(telemetry[11]&1)};
       } catch(error) {
         try {await this.command(3);} catch(_) {}
         throw error;

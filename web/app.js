@@ -14,7 +14,7 @@
     try {localStorage.setItem('fpga-chess-theme',dark?'dark':'light');} catch(_) {}
   }
   function save() {
-    try{localStorage.setItem('fpga-chess-game',JSON.stringify({moves:game.history.map(h=>h.move),human,depth:Number($('depth').value),claimed}));}catch(_){}
+    try{localStorage.setItem('fpga-chess-game',JSON.stringify({moves:game.history.map(h=>h.move),human,depth:Number($('depth').value),timeSeconds:Number($('time').value),claimed}));}catch(_){}
   }
   function restore() {
     try {
@@ -22,7 +22,8 @@
       if(saved&&Array.isArray(saved.moves)&&saved.moves.length<2000) {
         for(const move of saved.moves) game.push(move);
         human=saved.human===1?1:0;claimed=!!saved.claimed&&game.canClaim();
-        if([0,2,3].includes(saved.depth)) $('depth').value=saved.depth;
+        if([0,2,3,4,5,6].includes(saved.depth)) $('depth').value=saved.depth;
+        if([3,10,20,30].includes(saved.timeSeconds)) $('time').value=saved.timeSeconds;
       }
     } catch(_) {game.reset();}
     $('side').value=human;flipped=!!human;
@@ -55,7 +56,7 @@
     $('engine-color').textContent=human?'WHITE':'BLACK';
     $('turn-label').textContent=outcome?'Game finished':busy?'Thinking…':p.turn===human?'Your move':'FPGA to move';
     if(!busy) $('status').textContent=outcome?outcome.text:!connected?'Connect to your FPGA':p.turn===human?(p.inCheck()?'Your king is in check.':'Your move.'):'The fabric is ready.';
-    for(const id of ['new-game','side','depth','connect']) $(id).disabled=busy;
+    for(const id of ['new-game','side','depth','time','connect']) $(id).disabled=busy;
     $('undo').disabled=busy||!game.history.length;
     $('resume').hidden=busy||!!outcome||p.turn===human;
     $('resume').disabled=!connected;
@@ -149,11 +150,14 @@
     if(busy||!connected||game.position.turn===human||game.outcome()||claimed) return;
     busy=true;cancel=false;selected=null;render();$('status').textContent='The fabric is thinking…';message('Finding a reply on the FPGA.');
     try {
-      const result=await fpga.evaluate(game,{depth:Number($('depth').value),cancelled:()=>cancel});
+      const result=await fpga.evaluate(game,{depth:Number($('depth').value),timeSeconds:Number($('time').value),cancelled:()=>cancel,
+        progress:status=>{if(status.searchDepth>=2) $('status').textContent=`Searching ${status.searchDepth} ply…`;}});
       if(result.move!==null) game.push(result.move);
       $('decision').textContent=`${(result.cycles/50000000).toFixed(2)} s`;
-      $('nodes').textContent=result.nodes.toLocaleString();save();
-      message(game.outcome()?.text||'Your turn. Take your time.');
+      $('nodes').textContent=result.nodes.toLocaleString();
+      $('search-depth').textContent=result.depth?`${result.depth}${result.depth!==result.targetDepth?' / '+result.targetDepth:''} ply`:'—';
+      $('cache-hits').textContent=(result.cacheHits||0).toLocaleString();save();
+      message(game.outcome()?.text||(result.budgetExpired?`Your turn. Completed ${result.depth} ply in the time available.`:'Your turn. Take your time.'));
     } catch(error) {
       if(cancel) message('Search stopped. Play the FPGA turn when you are ready.');
       else {message(error.message,true);connection(false);}
@@ -193,6 +197,7 @@
   };
   $('side').onchange=()=>message('Your color will apply when you start a new game.');
   $('depth').onchange=save;
+  $('time').onchange=save;
   $('flip').onclick=()=>{cancelDrag();flipped=!flipped;render();};
   $('undo').onclick=()=>{cancelDrag();game.undoTurn(human);selected=null;claimed=false;save();render();message('Previous turn restored.');};
   $('resume').onclick=engineTurn;

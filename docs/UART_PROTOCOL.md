@@ -59,7 +59,7 @@ The service handles one connection at a time and closes every response.
 | 13 | policy page 0..1, 64 bytes | policy upload acknowledgement |
 | 14 | explanation page 0..63 | four 18-byte records |
 | 17 | count 0..8, newest-first move:u16 values | history acknowledgement |
-| 18 | none | nodes:u32, cutoffs:u32, depth:u8, quiescence:u8 |
+| 18 | none | 20-byte search telemetry, described below |
 
 Position squares run a1=0 to h8=63. Piece types: 1 pawn, 2 knight, 3 bishop,
 4 rook, 5 queen, 6 king; bit 3 marks black. Empty=0. Turn=0 white / 1 black.
@@ -68,9 +68,51 @@ destination [11:6], promotion kind [14:12]. Attack maps use little-endian
 64-bit square bitsets; other multi-byte fields are big endian.
 
 Status: bytes 0..3 `SCF1`, 4 busy, 5 done, 6 check, 7 turn, 8..9 legal count,
-10..11 best move, 12..13 signed score, 14 FSM, 15 engine protocol version (3),
-16..19 decision cycles at 50 MHz, 20..23 position generation. Remaining fields
-contain PRNG/field/history diagnostics. A completed, idle status validates the
+10..11 best move, 12..13 signed score, 14 FSM, 15 engine protocol version (4),
+16..19 decision cycles at 50 MHz, 20..23 position generation, 24..27 PRNG,
+28 current iteration depth, 29 completed depth, 30 history count, 31 features.
+A completed, idle status validates the
 selected move. Commit requires its matching generation and move. Browser
 verification compares the complete candidate set and pre/post-commit positions
 before updating its game with an FPGA reply.
+
+Protocol 4 search telemetry (command 18):
+
+| Bytes | Meaning |
+| --- | --- |
+| 0..3 | Nodes visited, including earlier iterations |
+| 4..7 | Alpha-beta cutoffs |
+| 8 | Requested normal search depth |
+| 9 | Configured quiescence plies; zero if disabled |
+| 10 | Last completed normal depth |
+| 11 | Flags: bit 0 budget expired, bit 1 position cache enabled |
+| 12..15 | Matching full-key cache probes, including ordering hints |
+| 16..19 | Cache entries written |
+
+Search settings live on policy page 0. Upload the entire 64-byte page with
+command 13 after reading it with command 12; preserve unrelated settings.
+
+| Policy index | Values | Default |
+| --- | --- | --- |
+| 10 | 0 spatial mode; 2..6 normal search plies | 5 |
+| 12 | Material weight, 0..32; 16 = normal material values | 16 |
+| 13 | Positional weight, 0..32; 16 = full positional weight | 8 |
+| 15 | 0/1 disable/enable quiescence | 1 |
+| 40 | Think budget in seconds, 1..60; 0 = unlimited | 10 |
+| 41 | Maximum capture/promotion extension plies, 0..4 | 4 |
+| 42 | 0/1 disable/enable position cache | 1 |
+
+Indices 16..23 remain the recurrent neighbor weights; 24..39 remain the response
+LUT. Search controls do not replace those programmable tables.
+
+Normal search begins at two plies and increases one ply at a time. Each
+completed iteration publishes its entire candidate list into a separate RAM
+bank. A timeout during the next iteration restores the published move, count,
+score and candidate bank. The first iteration finishes even if its budget has
+expired, so a successful result always contains the complete legal set.
+Check evasions can add one further ply at the quiescence limit; the stack has
+12 levels. See ENGINE.md for position-cache validity and draw handling.
+
+The web client also accepts the older protocol 3 / ten-byte telemetry when
+using Spatial, 2 ply or 3 ply. It reports an explicit upgrade message if deeper
+search is requested from the old FPGA image.

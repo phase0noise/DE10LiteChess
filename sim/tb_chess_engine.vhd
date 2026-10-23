@@ -5,7 +5,12 @@ use std.textio.all;
 use work.chess_pkg.all;
 
 entity tb_chess_engine is
-  generic(VECTOR_FILE : string := "sim/chess_vectors.txt"; CLOCK_DIVIDE : positive := 4; SEARCH_DEPTH : natural := 0);
+  generic(VECTOR_FILE : string := "sim/chess_vectors.txt"; CLOCK_DIVIDE : positive := 4; SEARCH_DEPTH : natural := 0;
+    CACHE_ENABLE : natural := 1; QUIESCENCE : natural := 4; BUDGET_SECONDS : natural := 0;
+    TEST_CLOCK_HZ : positive := 50000000; MAX_POLLS : positive := 20000; TRACE : boolean := false;
+    CHECK_TACTICS : boolean := true; EXPECT_TIMEOUT : boolean := false;
+    DETERMINISTIC : boolean := false; FIRST_POSITION : natural := 0;
+    POSITION_COUNT : natural := natural'high);
 end;
 architecture test of tb_chess_engine is
   signal clk : std_logic := '0';
@@ -21,7 +26,7 @@ architecture test of tb_chess_engine is
   signal running : boolean := true;
 begin
   clk <= not clk after 10 ns when running else '0';
-  dut : entity work.chess_engine generic map(CLOCK_DIVIDE=>CLOCK_DIVIDE,TRACE_SEARCH=>SEARCH_DEPTH>=2) port map(clk=>clk,reset=>reset,
+  dut : entity work.chess_engine generic map(CLOCK_DIVIDE=>CLOCK_DIVIDE,TRACE_SEARCH=>TRACE,CLOCK_HZ=>TEST_CLOCK_HZ) port map(clk=>clk,reset=>reset,
     rx_we=>rx_we,rx_address=>rx_addr,rx_data=>rx_data,command=>command,
     request_length=>req_len,request_token=>token,response_done=>complete,
     response_status=>status,response_length=>resp_len,read_address=>rd_addr,
@@ -43,6 +48,7 @@ begin
     variable committed_position : bytes_t(0 to 66);
     variable commit_expected : boolean;
     variable expected_best : integer;
+    variable decision_cycles,nodes,cache_hits,completed_depth,search_flags : natural;
     procedure send(constant length : natural; constant expected_status : natural := 0) is
     begin
       for i in 0 to length-1 loop
@@ -67,10 +73,18 @@ begin
     reset<='1'; wait for 100 ns; wait until falling_edge(clk); reset<='0';
     wait for 20 us*CLOCK_DIVIDE;
     runtime_policy(10):=oct(SEARCH_DEPTH);
+    runtime_policy(40):=oct(BUDGET_SECONDS);runtime_policy(41):=oct(QUIESCENCE);runtime_policy(42):=oct(CACHE_ENABLE);
     packet(0):=x"0D"; packet(1):=x"00";
     for i in 0 to 63 loop packet(i+2):=runtime_policy(i); end loop;
     send(66);
-    while not endfile(vectors) loop
+    if DETERMINISTIC then
+      packet(0):=x"06";send(1);
+      for i in 0 to 79 loop get(i,n);packet(i+1):=oct(n);end loop;
+      packet(0):=x"08";packet(1):=x"00";packet(5):=x"00";packet(8):=x"00";send(81);
+    end if;
+    for i in 1 to FIRST_POSITION loop readline(vectors,line_in);end loop;
+    test_count:=FIRST_POSITION;
+    while not endfile(vectors) and test_count-FIRST_POSITION<POSITION_COUNT loop
       readline(vectors,line_in);
       packet(0):=x"01";
       for i in 1 to 67 loop read(line_in,n); packet(i):=oct(n); expected_position(i-1):=oct(n); end loop;
@@ -87,7 +101,7 @@ begin
       end if;
       send(68);
       packet(0):=x"02"; send(1);
-      for poll in 0 to 999 loop
+      for poll in 0 to MAX_POLLS-1 loop
         wait for 100 us*CLOCK_DIVIDE;
         packet(0):=x"00"; send(1); get(5,n);
         exit when n=1;
@@ -98,14 +112,34 @@ begin
         ": actual "&integer'image(found)&" expected "&integer'image(count) severity failure;
       get(10,hi); get(11,lo); best:=hi*256+lo;
       if count>0 then assert seen(best) report "best move illegal" severity failure; end if;
-      if expected_best>=0 then assert best=expected_best report "tactical best move mismatch: actual "&integer'image(best)&" expected "&integer'image(expected_best) severity failure; end if;
+      if CHECK_TACTICS and expected_best>=0 then assert best=expected_best report "tactical best move mismatch: actual "&integer'image(best)&" expected "&integer'image(expected_best) severity failure; end if;
       packet(0):=x"05"; send(1);
       for i in 0 to 66 loop
         get(i,n); assert oct(n)=expected_position(i) report "search corrupted factual position metadata" severity failure;
       end loop;
       if SEARCH_DEPTH>=2 and count>0 then
+        packet(0):=x"00";send(1);
+        get(12,hi);get(13,lo);activation:=hi*256+lo;
+        if activation>=32768 then activation:=activation-65536;end if;
         packet(0):=x"12"; send(1); get(0,hi); get(1,lo); get(2,n); get(3,found);
+        nodes:=hi*16777216+lo*65536+n*256+found;
         assert hi+lo+n+found>0 report "search did not visit any nodes" severity failure;
+        get(10,completed_depth);get(11,search_flags);get(12,hi);get(13,lo);get(14,n);get(15,found);
+        cache_hits:=hi*16777216+lo*65536+n*256+found;
+        packet(0):=x"00";send(1);get(16,hi);get(17,lo);get(18,n);get(19,found);
+        decision_cycles:=hi*16777216+lo*65536+n*256+found;
+        report "BENCH position="&integer'image(test_count)&" best="&integer'image(best)&
+          " completed="&integer'image(completed_depth)&" nodes="&integer'image(nodes)&
+          " cache_hits="&integer'image(cache_hits)&" cycles="&integer'image(decision_cycles)&
+          " score="&integer'image(activation);
+        if CACHE_ENABLE=0 then assert cache_hits=0 report "Disabled cache was used" severity failure; end if;
+        if EXPECT_TIMEOUT then
+          assert search_flags mod 2=1 and completed_depth>=2 and completed_depth<SEARCH_DEPTH
+            report "Budget did not publish an earlier completed iteration" severity failure;
+        end if;
+        if BUDGET_SECONDS=0 and completed_depth/=0 then
+          assert completed_depth=SEARCH_DEPTH report "Search did not finish the requested depth" severity failure;
+        end if;
       end if;
       for page in 0 to 15 loop
         if page*16<count then
@@ -119,6 +153,10 @@ begin
               get(i*4+2,hi); get(i*4+3,lo); activation:=hi*256+lo;
               if activation>=32768 then activation:=activation-65536; end if;
               expected_scores(move):=activation;
+              if DETERMINISTIC then
+                report "CACHE_SCORE position="&integer'image(test_count)&" move="&integer'image(move)&
+                  " value="&integer'image(activation);
+              end if;
             end if;
           end loop;
         end if;
@@ -143,7 +181,7 @@ begin
           end loop;
         end if;
       end loop;
-      if focus_move>=0 then
+      if CHECK_TACTICS and focus_move>=0 then
         report "behavior activation: focus "&integer'image(expected_scores(focus_move))&" versus alternative "&integer'image(expected_scores(other_move));
         assert expected_scores(focus_move)>expected_scores(other_move)+score_gap report "tactical move was not rewarded" severity failure;
       end if;
@@ -151,7 +189,7 @@ begin
       for i in 0 to 15 loop
         get(i,n); assert oct(n)=expected_maps(i) report "attack map mismatch" severity failure;
       end loop;
-      if commit_expected then
+      if CHECK_TACTICS and commit_expected then
         packet(0):=x"00"; send(1);
         packet(0):=x"0B";
         for i in 0 to 3 loop get(20+i,n); packet(1+i):=oct(n); end loop;
@@ -166,7 +204,7 @@ begin
       test_count:=test_count+1;
       report "position "&integer'image(test_count)&" passed ("&integer'image(count)&" legal moves)";
     end loop;
-    report "PASS: independent python-chess legal sets and attack maps: "&integer'image(test_count);
+    report "PASS: independent python-chess legal sets and attack maps: "&integer'image(test_count-FIRST_POSITION);
     -- Routing moved from flip-flops to M4K. Verify the entire native-clock
     -- response path, including the register/RAM boundary at byte 16.
     packet(0):=x"08";

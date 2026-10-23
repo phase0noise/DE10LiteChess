@@ -9,6 +9,14 @@ package chess_pkg is
   type bytes_t is array(natural range <>) of byte_t;
   type field_t is array(0 to 63) of integer range -127 to 127;
   type seeds_t is array(0 to 63) of unsigned(15 downto 0);
+  constant MAX_SEARCH_DEPTH : positive := 6;
+  constant MAX_QUIESCENCE : positive := 4;
+  constant SEARCH_LEVELS : positive := 12;
+  constant SEARCH_MOVES : positive := 512;
+  constant CACHE_INDEX_BITS : positive := 12;
+  constant CACHE_ENTRIES : positive := 2**CACHE_INDEX_BITS;
+  subtype hash_t is unsigned(63 downto 0);
+  function position_salt(turn : std_logic; rights : std_logic_vector(3 downto 0); ep : natural) return hash_t;
   type offsets_t is array(0 to 7) of integer;
   constant DX : offsets_t := (1,-1,0,0,1,-1,1,-1);
   constant DY : offsets_t := (0,0,1,-1,1,1,-1,-1);
@@ -27,6 +35,20 @@ package chess_pkg is
 end package;
 
 package body chess_pkg is
+  function position_salt(turn : std_logic; rights : std_logic_vector(3 downto 0); ep : natural) return hash_t is
+    type salts_t is array(0 to 11) of hash_t;
+    constant salts : salts_t := (x"9E3779B97F4A7C15",x"BF58476D1CE4E5B9",x"94D049BB133111EB",
+      x"D6E8FEB86659FD93",x"A0761D6478BD642F",x"E7037ED1A0B428DB",x"8EBC6AF09C88C6E3",
+      x"589965CC75374CC3",x"1D8E4E27C47D124F",x"EB44ACCAB455D165",x"C6BC279692B5CC83",x"DB4F0B9175AE2165");
+    variable result : hash_t := x"243F6A8885A308D3";
+    variable ep_bits : unsigned(6 downto 0);
+  begin
+    if turn='1' then result:=result xor salts(0); end if;
+    for i in 0 to 3 loop if rights(i)='1' then result:=result xor salts(i+1); end if; end loop;
+    ep_bits:=to_unsigned(ep,7);
+    for i in 0 to 6 loop if ep_bits(i)='1' then result:=result xor salts(i+5); end if; end loop;
+    return result;
+  end;
   function clip16(n : integer) return integer is
   begin
     if n>32767 then return 32767; elsif n< -32768 then return -32768; else return n; end if;
@@ -94,7 +116,8 @@ package body chess_pkg is
     p(0):=x"20"; p(1):=x"04"; p(2):=x"08";
     p(3):=x"A0"; p(4):=x"50"; p(5):=x"18";
     p(6):=x"50"; p(7):=x"20"; p(8):=x"02"; p(9):=x"10";
-    p(10):=x"03"; p(12):=x"10"; p(13):=x"08"; p(15):=x"01";
+    p(10):=x"05"; p(12):=x"10"; p(13):=x"08"; p(15):=x"01";
+    p(40):=x"0A"; p(41):=x"04"; p(42):=x"01";
     p(14):=x"02";
     for d in 16 to 23 loop p(d):=x"08"; end loop;
     for i in 0 to 15 loop p(24+i):=std_logic_vector(to_signed(i*16-120,8)); end loop;

@@ -5,6 +5,7 @@ param(
     [string]$Cxx,
     [int]$Positions = 128,
     [switch]$SkipSearch,
+    [switch]$Strength,
     [switch]$Browser
 )
 $ErrorActionPreference = 'Stop'
@@ -44,19 +45,18 @@ try {
     & .cache/protocol_test.exe
     if ($LASTEXITCODE -ne 0) { throw 'Pico UART parser tests failed.' }
     $sources = @('rtl/chess_pkg.vhd','rtl/chess_cell_memory.vhd','rtl/chess_spatial.vhd',
-                 'rtl/chess_engine.vhd','rtl/chess_uart_bridge.vhd',
-                 'sim/tb_chess_uart.vhd','sim/tb_chess_engine.vhd')
+                 'rtl/chess_search_memory.vhd','rtl/chess_engine.vhd','rtl/chess_uart_bridge.vhd',
+                 'sim/tb_chess_uart.vhd','sim/tb_chess_engine.vhd','sim/tb_chess_search_memory.vhd')
     & $Ghdl -a --std=08 --workdir=.cache/ghdl @sources
     if ($LASTEXITCODE -ne 0) { throw 'VHDL analysis failed.' }
+    & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_search_memory --assert-level=error
+    if ($LASTEXITCODE -ne 0) { throw 'Search memory tests failed.' }
     & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_uart --assert-level=error
     if ($LASTEXITCODE -ne 0) { throw 'VHDL UART integration failed.' }
     & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_engine '-gVECTOR_FILE=.cache/chess_vectors.txt' -gCLOCK_DIVIDE=4 --assert-level=error
     if ($LASTEXITCODE -ne 0) { throw 'VHDL legal-set comparison failed.' }
     if (-not $SkipSearch) {
-        & $Python tests/generate_search.py
-        if ($LASTEXITCODE -ne 0) { throw 'Tactical fixture generation failed.' }
-        & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_engine '-gVECTOR_FILE=.cache/search_vectors.txt' -gSEARCH_DEPTH=3 -gCLOCK_DIVIDE=4 --assert-level=error
-        if ($LASTEXITCODE -ne 0) { throw 'VHDL search tactics failed.' }
+        & "$PSScriptRoot/verify_search.ps1" -Python $Python -Ghdl $Ghdl -Strength:$Strength
     }
     if ($Browser) {
         & $Node tests/browser_smoke.cjs | Out-Host

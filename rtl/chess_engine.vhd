@@ -1,12 +1,12 @@
 -- Shared speculative board, spatial legality filter, and 64 recurrent cells.
--- Host commands are bounded; the evaluator runs independently of UDP traffic.
+-- Host commands are bounded; the evaluator runs independently of UART traffic.
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.chess_pkg.all;
 
 entity chess_engine is
-  generic(CLOCK_DIVIDE : positive := 1; TRACE_SEARCH : boolean := false);
+  generic(CLOCK_DIVIDE : positive := 4; TRACE_SEARCH : boolean := false; CLOCK_HZ : positive := 50000000);
   port(clk,reset : in std_logic;
     rx_we : in std_logic; rx_address : in natural range 0 to 80; rx_data : in byte_t;
     command : in std_logic; request_length : in natural range 0 to 81;
@@ -20,7 +20,8 @@ entity chess_engine is
 end;
 
 architecture fabric of chess_engine is
-  type state_t is (IDLE, SNAPSHOT, RELAX, PICK, APPLY, SETTLE, INSPECT, SCORE_MOVE, RESTORE, ADVANCE, FINISH, COMMIT_MOVE, LOAD_SCAN, LOAD_FINISH, AUDIT_RESET, AUDIT_CELL, AUDIT_DONE, LOAD_POLICY, BOOT_POLICY, SEARCH_SAVE, SEARCH_BEGIN, SEARCH_RECALL_WAIT, SEARCH_RECALL_COPY, SEARCH_ACCEPT, SEARCH_RETURN, SEARCH_ROOT, LOAD_ROUTES, SEARCH_SUM, SEARCH_ADD, SEARCH_SCORE);
+  type state_t is (IDLE, SNAPSHOT, RELAX, PICK, APPLY, SETTLE, INSPECT, SCORE_MOVE, RESTORE, ADVANCE, FINISH, COMMIT_MOVE, LOAD_SCAN, LOAD_FINISH, AUDIT_RESET, AUDIT_CELL, AUDIT_DONE, LOAD_POLICY, BOOT_POLICY, SEARCH_SAVE, SEARCH_BEGIN, SEARCH_RECALL_WAIT, SEARCH_RECALL_COPY, SEARCH_ACCEPT, SEARCH_RETURN, SEARCH_ROOT, LOAD_ROUTES, SEARCH_SUM, SEARCH_ADD, SEARCH_SCORE,
+    CACHE_CLEAR, EVAL_PAWNS, EVAL_BLEND, EVAL_DONE, CACHE_PROBE, NODE_READY, MOVE_SELECT, MOVE_APPLY);
   signal state : state_t := IDLE;
   signal phase : natural range 0 to CLOCK_DIVIDE-1 := 0;
   signal command_seen : std_logic := '0';
@@ -41,7 +42,7 @@ architecture fabric of chess_engine is
   signal field_leds : std_logic_vector(15 downto 0) := (others=>'0');
   signal field_valid : std_logic_vector(63 downto 0) := (others=>'0');
   constant INIT_POLICY : bytes_t(0 to 127) := policy_defaults;
-  signal policy : bytes_t(0 to 15) := INIT_POLICY(0 to 15);
+  signal policy : bytes_t(0 to 42) := INIT_POLICY(0 to 42);
   attribute ramstyle : string;
   attribute ramstyle of route_table,snapshot_table : signal is "M9K, no_rw_check";
   signal policy_initialized : std_logic := '0';
@@ -71,24 +72,66 @@ architecture fabric of chess_engine is
   signal neuron_direction : natural range 0 to 9 := 0;
   signal neighbor_accum : signed(13 downto 0) := (others=>'0');
   -- Shared spatial fabric, serialized board stack: no replicated chess engines.
-  type stack_ram_t is array(0 to 191) of piece_t;
+  type stack_ram_t is array(0 to SEARCH_LEVELS*64-1) of piece_t;
   signal search_stack : stack_ram_t;
   attribute ramstyle of search_stack : signal is "M9K";
   signal search_q : piece_t;
-  signal search_sp : natural range 0 to 2 := 0;
+  signal search_sp : natural range 0 to SEARCH_LEVELS-1 := 0;
   signal search_index : natural range 0 to 63 := 0;
   signal search_active,search_returning : std_logic := '0';
-  type search_scores_t is array(0 to 2) of integer range -30000 to 30000;
-  type search_squares_t is array(0 to 2) of natural range 0 to 63;
-  type search_eps_t is array(0 to 2) of natural range 0 to 64;
-  type search_promotions_t is array(0 to 2) of natural range 2 to 5;
-  type search_rights_t is array(0 to 2) of std_logic_vector(3 downto 0);
+  type search_scores_t is array(0 to SEARCH_LEVELS-1) of integer range -30000 to 30000;
+  type search_squares_t is array(0 to SEARCH_LEVELS-1) of natural range 0 to 63;
+  type search_eps_t is array(0 to SEARCH_LEVELS-1) of natural range 0 to 64;
+  type search_promotions_t is array(0 to SEARCH_LEVELS-1) of natural range 2 to 5;
+  type search_rights_t is array(0 to SEARCH_LEVELS-1) of std_logic_vector(3 downto 0);
   signal node_static,node_best,node_alpha,node_beta : search_scores_t := (others=>0);
   signal node_wk,node_bk,cursor_src,cursor_dst : search_squares_t := (others=>0);
   signal node_ep : search_eps_t := (others=>64);
   signal cursor_promotion : search_promotions_t := (others=>2);
   signal node_rights : search_rights_t := (others=>"0000");
-  signal node_turn,node_check,node_legal,cursor_promoting : std_logic_vector(0 to 2) := (others=>'0');
+  signal node_turn,node_check,node_legal,cursor_promoting : std_logic_vector(0 to SEARCH_LEVELS-1) := (others=>'0');
+  type node_moves_t is array(0 to SEARCH_LEVELS-1) of std_logic_vector(15 downto 0);
+  type node_counts_t is array(0 to SEARCH_LEVELS-1) of natural range 0 to SEARCH_MOVES;
+  type node_hashes_t is array(0 to SEARCH_LEVELS-1) of hash_t;
+  signal node_count,node_remaining : node_counts_t := (others=>0);
+  signal node_hash : node_hashes_t := (others=>(others=>'0'));
+  signal node_start_alpha,node_start_beta : search_scores_t;
+  signal node_best_move,node_hint,node_killer1,node_killer2 : node_moves_t := (others=>(others=>'0'));
+  signal node_hint_valid,node_tactical,node_cached,node_repetition : std_logic_vector(0 to SEARCH_LEVELS-1) := (others=>'0');
+  signal node_draw : std_logic_vector(0 to SEARCH_LEVELS-1) := (others=>'0');
+  signal node_cache_word : std_logic_vector(127 downto 0);
+  signal search_building : std_logic := '0';
+  signal search_iteration,search_completed : natural range 0 to MAX_SEARCH_DEPTH := 0;
+  signal search_timed_out,search_has_completed,search_running : std_logic := '0';
+  signal search_limit : unsigned(31 downto 0) := (others=>'0');
+  signal search_epoch : unsigned(15 downto 0) := (others=>'0');
+  signal search_cache_hits,search_cache_stores : unsigned(31 downto 0) := (others=>'0');
+  signal search_hash_acc : hash_t := (others=>'0');
+  signal search_scan,search_pick_index : natural range 0 to SEARCH_MOVES-1 := 0;
+  signal search_pick_data : std_logic_vector(31 downto 0) := (others=>'0');
+  signal search_clear_index : natural range 0 to CACHE_ENTRIES-1 := 0;
+  signal queue_we,cache_we,history_we : std_logic := '0';
+  signal queue_write_address,queue_read_address : natural range 0 to SEARCH_LEVELS*SEARCH_MOVES-1 := 0;
+  signal queue_write_data,queue_data : std_logic_vector(31 downto 0);
+  signal cache_write_address,cache_read_address : natural range 0 to CACHE_ENTRIES-1 := 0;
+  signal cache_write_data,cache_data : std_logic_vector(127 downto 0);
+  signal history_write_address,history_read_address : natural range 0 to 4095 := 0;
+  signal history_write_data,history_data : unsigned(12 downto 0);
+  signal hash_data : hash_t;
+  signal hash_piece : piece_t;
+  type files_t is array(0 to 7) of natural range 0 to 16;
+  type ranks_t is array(0 to 7) of natural range 0 to 7;
+  signal eval_white_pawns,eval_black_pawns,eval_white_rooks,eval_black_rooks : files_t := (others=>0);
+  signal eval_white_min,eval_black_min : ranks_t := (others=>7);
+  signal eval_white_max,eval_black_max : ranks_t := (others=>0);
+  signal eval_white_bishops,eval_black_bishops : natural range 0 to 16 := 0;
+  signal eval_minors,eval_knights : natural range 0 to 32 := 0;
+  signal eval_heavy : std_logic := '0';
+  signal eval_bishop_colors : std_logic_vector(1 downto 0) := "00";
+  signal eval_mg,eval_eg : integer range -131072 to 131071 := 0;
+  signal eval_blend_mg,eval_blend_eg : integer range -4194304 to 4194303 := 0;
+  signal eval_phase : natural range 0 to 128 := 0;
+  signal eval_file : natural range 0 to 7 := 0;
   signal active_turn : std_logic;
   signal active_rights : std_logic_vector(3 downto 0);
   signal active_ep : natural range 0 to 64;
@@ -120,12 +163,16 @@ architecture fabric of chess_engine is
   signal best_move : std_logic_vector(15 downto 0) := (others=>'0');
   signal best_score : integer range -32768 to 32767 := -32768;
   signal candidate_move : std_logic_vector(15 downto 0);
-  type candidates_t is array(0 to 255) of std_logic_vector(143 downto 0);
+  type candidates_t is array(0 to 511) of std_logic_vector(143 downto 0);
   signal candidates : candidates_t;
   signal candidate_word : std_logic_vector(143 downto 0);
-  signal candidate_index : natural range 0 to 255 := 0;
+  signal candidate_index : natural range 0 to 511 := 0;
   signal candidate_we : std_logic := '0';
-  signal candidate_write_index : natural range 0 to 255 := 0;
+  signal candidate_write_index : natural range 0 to 511 := 0;
+  signal candidate_bank,published_bank : natural range 0 to 1 := 0;
+  signal completed_count : natural range 0 to 256 := 0;
+  signal completed_move : std_logic_vector(15 downto 0) := (others=>'0');
+  signal completed_score : integer range -32768 to 32767 := -32768;
   signal candidate_write_data : std_logic_vector(143 downto 0);
   attribute ramstyle of candidates : signal is "M9K";
   signal response_kind : natural range 0 to 18 := 0;
@@ -147,6 +194,20 @@ architecture fabric of chess_engine is
   signal score_capture,score_danger,score_field,score_noise : integer range -131072 to 131071 := 0;
   signal read_byte : byte_t;
 begin
+  assert CLOCK_DIVIDE>=4
+    report "Search RAM pipelines and timing constraints require a divide of at least four" severity failure;
+  storage : entity work.chess_search_memory port map(clk=>clk,
+    queue_we=>queue_we,queue_write_address=>queue_write_address,queue_read_address=>queue_read_address,
+    queue_write_data=>queue_write_data,queue_data=>queue_data,
+    cache_we=>cache_we,cache_write_address=>cache_write_address,cache_read_address=>cache_read_address,
+    cache_write_data=>cache_write_data,cache_data=>cache_data,
+    history_we=>history_we,history_write_address=>history_write_address,history_read_address=>history_read_address,
+    history_write_data=>history_write_data,history_data=>history_data,
+    hash_piece=>hash_piece,hash_square=>search_index,hash_data=>hash_data);
+  hash_piece<=b(search_index);
+  queue_read_address<=search_sp*SEARCH_MOVES+search_scan;
+  cache_read_address<=to_integer(node_hash(search_sp)(CACHE_INDEX_BITS-1 downto 0));
+  history_read_address<=src*64+dst;
   spatial : entity work.chess_spatial port map(board=>b,source=>src,
     white_attack=>white_a,black_attack=>black_a,reachable=>reach);
   active_turn <= node_turn(search_sp) when search_active='1' else turn;
@@ -168,8 +229,8 @@ begin
   activity(15 downto 0)<=field_leds;
 
   -- A single synchronous read port preserves M9K inference for candidates.
-  candidate_index <= page*4 + (read_address/18 mod 4) when response_kind=14 else
-                     (page mod 16)*16 + (read_address/4 mod 16);
+  candidate_index <= published_bank*256+page*4 + (read_address/18 mod 4) when response_kind=14 else
+                     published_bank*256+(page mod 16)*16 + (read_address/4 mod 16);
   route_address <= policy_boot_index mod 64 when state=BOOT_POLICY else
                    route_index when state=LOAD_ROUTES else neuron_index;
   process(clk) begin
@@ -222,9 +283,7 @@ begin
     policy_data=>mem_policy_data,cell_data=>mem_cell_data,
     policy_q_a=>mem_policy_a,policy_q_b=>mem_policy_b,cell_q_a=>mem_field_a,cell_q_b=>mem_field_b);
 
-  process(read_address,response_kind,candidate_word,base,turn,rights,ep,cfg,
-      white_map,black_map,field_valid,snapshot_q,route_host_q,state,done,in_check,legal_count,best_move,relax_left,
-      best_score,elapsed,generation,ack,rng,mem_policy_a,history_count,search_nodes,search_cutoffs,policy)
+  process(all)
     variable n,v : integer;
     variable word32 : std_logic_vector(31 downto 0);
   begin
@@ -240,11 +299,11 @@ begin
           when 8=>read_byte<=oct(legal_count/256); when 9=>read_byte<=oct(legal_count);
           when 10=>read_byte<=best_move(15 downto 8); when 11=>read_byte<=best_move(7 downto 0);
           when 12=>word32:=std_logic_vector(to_signed(best_score,32)); read_byte<=word32(15 downto 8); when 13=>read_byte<=oct(best_score);
-          when 14=>read_byte<=oct(state_t'pos(state)); when 15=>read_byte<=x"03";
+          when 14=>read_byte<=oct(state_t'pos(state)); when 15=>read_byte<=x"04";
           when 16 to 19=>read_byte<=std_logic_vector(elapsed(31-(n-16)*8 downto 24-(n-16)*8));
           when 20 to 23=>read_byte<=std_logic_vector(generation(31-(n-20)*8 downto 24-(n-20)*8));
           when 24 to 27=>read_byte<=std_logic_vector(rng(31-(n-24)*8 downto 24-(n-24)*8));
-          when 28=>read_byte<=oct(relax_left); when 29=>read_byte<=cfg(0);
+          when 28=>read_byte<=oct(search_iteration); when 29=>read_byte<=oct(search_completed);
           when 30=>read_byte<=oct(history_count); when 31=>read_byte<=x"0F";
           when others=>null;
         end case;
@@ -271,7 +330,13 @@ begin
         if n<4 then read_byte<=std_logic_vector(search_nodes(31-n*8 downto 24-n*8));
         elsif n<8 then read_byte<=std_logic_vector(search_cutoffs(31-(n-4)*8 downto 24-(n-4)*8));
         elsif n=8 then read_byte<=policy(10);
-        elsif n=9 then read_byte<=policy(15); end if;
+        elsif n=9 then
+          if policy(15)(0)='1' then read_byte<=policy(41); end if;
+        elsif n=10 then read_byte<=oct(search_completed);
+        elsif n=11 then read_byte<="000000"&policy(42)(0)&search_timed_out;
+        elsif n<16 then read_byte<=std_logic_vector(search_cache_hits(31-(n-12)*8 downto 24-(n-12)*8));
+        elsif n<20 then read_byte<=std_logic_vector(search_cache_stores(31-(n-16)*8 downto 24-(n-16)*8));
+        end if;
       when others=>null;
     end case;
   end process;
@@ -297,9 +362,16 @@ begin
     variable own_k,enemy_k : natural range 0 to 63;
     variable next_static,search_part,search_depth,prom_kind : integer;
     variable tactical,consider_move : boolean;
+    variable packed_move : std_logic_vector(15 downto 0);
+    variable order_score,mg,eg,ph,file_index,white_bonus,black_bonus,remaining_depth,remaining_q : integer;
+    variable white_passed,black_passed,repeated : boolean;
+    variable next_hash : hash_t;
+    variable picked : std_logic_vector(31 downto 0);
+    variable picked_index : natural range 0 to SEARCH_MOVES-1;
+    variable cache_word : std_logic_vector(127 downto 0);
   begin
     if rising_edge(clk) then
-      response_done<='0'; candidate_we<='0';
+      response_done<='0'; candidate_we<='0'; queue_we<='0'; cache_we<='0'; history_we<='0';
       divider<=divider+1;
       if phase=CLOCK_DIVIDE-1 then phase<=0; else phase<=phase+1; end if;
       if command='0' then command_seen<='0'; end if;
@@ -316,6 +388,9 @@ begin
         history_count<=0; nonpawn_count<=14; neuron_direction<=0; neighbor_accum<=(others=>'0');
         neuron_old<=(others=>'0'); neuron_bias<=(others=>'0');
         search_active<='0'; search_sp<=0; search_nodes<=(others=>'0'); search_cutoffs<=(others=>'0');
+        search_running<='0'; search_has_completed<='0'; search_completed<=0; search_iteration<=0;
+        search_timed_out<='0'; candidate_bank<=0; published_bank<=0;
+        search_cache_hits<=(others=>'0'); search_cache_stores<=(others=>'0');
       elsif phase=0 then
         old_keys<=keys;
         -- Freeze the received frame at the chess enable boundary before any
@@ -404,12 +479,24 @@ begin
             if keys(1)='1' and old_keys(1)='0' then state<=SNAPSHOT; done<='0'; end if;
           when SNAPSHOT=>
             search_active<='0'; search_nodes<=(others=>'0'); search_cutoffs<=(others=>'0');
+            search_running<='1'; search_has_completed<='0'; search_completed<=0; search_timed_out<='0';
+            search_iteration<=0; if unsigned(policy(10))>=2 then search_iteration<=2; end if;
+            candidate_bank<=1-published_bank;
+            search_limit<=resize(resize(unsigned(policy(40)),32)*to_unsigned(CLOCK_HZ,32),32);
+            search_epoch<=search_epoch+1;
+            search_cache_hits<=(others=>'0'); search_cache_stores<=(others=>'0');
+            node_killer1<=(others=>(others=>'0')); node_killer2<=(others=>(others=>'0'));
             white_map<=white_a; black_map<=black_a; in_check<=enemy_a(own_king);
             legal_count<=0; src<=0; dst<=0; promotion<=2; best_score<=-32768;
             best_move<=(others=>'0'); elapsed<=(others=>'0');
             neuron_index<=0; neuron_direction<=0; neighbor_accum<=(others=>'0');
             relax_left<=to_integer(unsigned(cfg(4))); relax_timer<=(others=>'0');
             audit_trial<='0'; state<=AUDIT_RESET;
+            if search_epoch=x"FFFF" then search_clear_index<=0; state<=CACHE_CLEAR; end if;
+          when CACHE_CLEAR=>
+            cache_we<='1'; cache_write_address<=search_clear_index; cache_write_data<=(others=>'0');
+            if search_clear_index=CACHE_ENTRIES-1 then state<=AUDIT_RESET;
+            else search_clear_index<=search_clear_index+1; end if;
           when RELAX=>
             if relax_timer/=0 then relax_timer<=relax_timer-1;
             elsif relax_left=0 then state<=PICK;
@@ -418,7 +505,7 @@ begin
             if route_index=63 then state<=IDLE; response_done<='1';
             else route_index<=route_index+1; end if;
           when LOAD_POLICY=>
-            if policy_page=0 and policy_index<16 then policy(policy_index mod 16)<=packet_rx(policy_index+2); end if;
+            if policy_page=0 and policy_index<43 then policy(policy_index)<=packet_rx(policy_index+2); end if;
             if policy_index=63 then state<=IDLE; response_done<='1';
             else policy_index<=policy_index+1; end if;
           when AUDIT_RESET=>
@@ -520,7 +607,35 @@ begin
             if k=0 or p(3)/=active_turn then
               -- Skip all 64 destinations for an ineligible source.
               dst<=63; promoting<='0'; state<=ADVANCE;
-            elsif valid then state<=APPLY; else state<=ADVANCE; end if;
+            elsif valid and search_active='1' and search_building='1' then
+              packed_move:="0000"&std_logic_vector(to_unsigned(dst,6))&std_logic_vector(to_unsigned(src,6));
+              if k=1 and (dst/8=0 or dst/8=7) then packed_move(14 downto 12):=std_logic_vector(to_unsigned(promotion,3)); end if;
+              order_score:=512+to_integer(history_data)+square_wisdom(p,dst,false)-square_wisdom(p,src,false);
+              if node_killer2(search_sp)=packed_move then order_score:=17000; end if;
+              if node_killer1(search_sp)=packed_move then order_score:=18000; end if;
+              if kind(t)/=0 or pawn_ep or (k=1 and (dst/8=0 or dst/8=7)) then
+                n:=value(t); if pawn_ep then n:=100; end if;
+                order_score:=20000+n*16-value(p);
+                if k=1 and (dst/8=0 or dst/8=7) then order_score:=order_score+(value(std_logic_vector(to_unsigned(promotion,4)))-100)*8; end if;
+              end if;
+              if node_hint_valid(search_sp)='1' and node_hint(search_sp)=packed_move then order_score:=65535; end if;
+              -- Standard chess has at most 16 pieces per side, so even 16
+              -- queens have fewer than 512 pseudo-legal destinations.
+              assert node_count(search_sp)<SEARCH_MOVES report "Search move RAM capacity exceeded" severity failure;
+              if node_count(search_sp)<SEARCH_MOVES then
+                queue_we<='1'; queue_write_address<=search_sp*SEARCH_MOVES+node_count(search_sp);
+                queue_write_data<=std_logic_vector(to_unsigned(order_score,16))&packed_move;
+                node_count(search_sp)<=node_count(search_sp)+1;
+              end if;
+              state<=ADVANCE;
+            elsif valid then
+              -- Once a legal move is known, quiet moves at a quiescent node
+              -- need no speculative apply/restore cycle.
+              if search_active='1' and search_sp+1>=search_iteration and node_check(search_sp)='0' and
+                 node_legal(search_sp)='1' and kind(t)=0 and not pawn_ep and not (k=1 and (dst/8=0 or dst/8=7)) then
+                state<=ADVANCE;
+              else state<=APPLY; end if;
+            else state<=ADVANCE; end if;
           when APPLY | COMMIT_MOVE=>
             temp:=b; if state=COMMIT_MOVE then temp:=base; end if; p:=moving;
             if promoting='1' then p:=active_turn&std_logic_vector(to_unsigned(promotion,3)); end if;
@@ -564,20 +679,25 @@ begin
                        nonpawn_count<=4,to_integer(unsigned(policy(12))),to_integer(unsigned(policy(13))));
               if active_turn/=turn then delta:=-delta; end if;
               if search_active='1' then
-                search_nodes<=search_nodes+1; node_legal(search_sp)<='1';
-                next_static:=node_static(search_sp)+delta;
-                if next_static>25000 then next_static:=25000; elsif next_static< -25000 then next_static:=-25000; end if;
-                search_result<=next_static;
-                search_depth:=to_integer(unsigned(policy(10))); if search_depth>3 then search_depth:=3; end if;
-                enemy_k:=active_bk; if active_turn='1' then enemy_k:=active_wk; end if;
-                tactical:=kind(captured)/=0 or promoting='1' or friend_a(enemy_k)='1';
-                consider_move:=search_sp+1<search_depth or node_check(search_sp)='1' or kind(captured)/=0 or promoting='1';
-                if consider_move then
-                  if search_sp<2 and (search_sp+2<search_depth or
-                     (policy(15)(0)='1' and search_sp+2<search_depth+1 and tactical)) then
+                node_legal(search_sp)<='1';
+                tactical:=kind(captured)/=0 or promoting='1';
+                node_tactical(search_sp)<='0'; if tactical then node_tactical(search_sp)<='1'; end if;
+                search_depth:=search_iteration;
+                remaining_q:=0; if policy(15)(0)='1' then remaining_q:=to_integer(unsigned(policy(41))); end if;
+                consider_move:=search_sp+1<search_depth or node_check(search_sp)='1' or tactical;
+                -- Stand-pat cutoffs are legal only after finding an actual
+                -- legal move; this preserves mate and stalemate at the horizon.
+                valid:=search_sp+1>=search_depth and node_check(search_sp)='0' and
+                  ((active_turn=turn and node_best(search_sp)>=node_beta(search_sp)) or
+                   (active_turn/=turn and node_best(search_sp)<=node_alpha(search_sp)));
+                if valid then search_result<=node_best(search_sp); state<=SEARCH_RETURN;
+                elsif search_sp+1>=search_depth+remaining_q and
+                      (node_check(search_sp)='0' or search_sp+1>=search_depth+remaining_q+1) then
+                  search_result<=node_static(search_sp); state<=SEARCH_RETURN;
+                elsif consider_move then
+                  if search_sp<SEARCH_LEVELS-1 then
                     cursor_src(search_sp)<=src; cursor_dst(search_sp)<=dst;
                     cursor_promotion(search_sp)<=promotion; cursor_promoting(search_sp)<=promoting;
-                    node_static(search_sp+1)<=next_static;
                     node_turn(search_sp+1)<=not active_turn;
                     node_rights(search_sp+1)<=updated_rights(active_rights,src,dst);
                     node_ep(search_sp+1)<=64;
@@ -588,7 +708,7 @@ begin
                     end if;
                     node_alpha(search_sp+1)<=node_alpha(search_sp); node_beta(search_sp+1)<=node_beta(search_sp);
                     search_sp<=search_sp+1; search_index<=0; state<=SEARCH_SAVE;
-                  else state<=SEARCH_ACCEPT; end if;
+                  else search_result<=node_static(search_sp); state<=SEARCH_RETURN; end if;
                 else search_returning<='0'; search_index<=0; state<=SEARCH_RECALL_WAIT; end if;
               else
                 trial_static<=clip16(base_static+delta);
@@ -673,16 +793,172 @@ begin
               search_root_move<=candidate_move; search_delta_score<=0; state<=SEARCH_SUM;
             end if;
           when SEARCH_SAVE=>
-            if search_index=63 then state<=SEARCH_BEGIN; else search_index<=search_index+1; end if;
+            p:=b(search_index); k:=kind(p); file_index:=search_index mod 8;
+            mg:=value(p); if k=6 then mg:=0; end if;
+            mg:=mg*to_integer(unsigned(policy(12)))/16;
+            eg:=mg+square_wisdom(p,search_index,true)*to_integer(unsigned(policy(13)))/16;
+            mg:=mg+square_wisdom(p,search_index,false)*to_integer(unsigned(policy(13)))/16;
+            if p(3)='1' then mg:=-mg; eg:=-eg; end if;
+            if k=1 then
+              -- Pawn shelter matters in the middlegame, not in king endings.
+              if p(3)='0' and abs(file_index-active_wk mod 8)<=1 and
+                 (search_index/8=active_wk/8+1 or search_index/8=active_wk/8+2) then mg:=mg+10; end if;
+              if p(3)='1' and abs(file_index-active_bk mod 8)<=1 and
+                 (search_index/8=active_bk/8-1 or search_index/8=active_bk/8-2) then mg:=mg-10; end if;
+            end if;
+            ph:=0; if k=2 or k=3 then ph:=1; elsif k=4 then ph:=2; elsif k=5 then ph:=4; end if;
+            if search_index=0 then
+              eval_mg<=mg; eval_eg<=eg; eval_phase<=ph;
+              eval_white_pawns<=(others=>0); eval_black_pawns<=(others=>0);
+              eval_white_rooks<=(others=>0); eval_black_rooks<=(others=>0);
+              eval_white_min<=(others=>7); eval_black_min<=(others=>7);
+              eval_white_max<=(others=>0); eval_black_max<=(others=>0);
+              eval_white_bishops<=0; eval_black_bishops<=0;
+              eval_minors<=0; eval_knights<=0; eval_heavy<='0'; eval_bishop_colors<="00";
+              next_hash:=position_salt(active_turn,active_rights,active_ep) xor hash_data;
+            else
+              eval_mg<=eval_mg+mg; eval_eg<=eval_eg+eg; eval_phase<=eval_phase+ph;
+              next_hash:=search_hash_acc xor hash_data;
+            end if;
+            search_hash_acc<=next_hash;
+            if k=1 or k=4 or k=5 then eval_heavy<='1'; end if;
+            if k=2 or k=3 then
+              n:=eval_minors; if search_index=0 then n:=0; end if;
+              eval_minors<=n+1;
+              if k=2 then
+                n:=eval_knights; if search_index=0 then n:=0; end if; eval_knights<=n+1;
+              else eval_bishop_colors((search_index/8+search_index mod 8) mod 2)<='1'; end if;
+            end if;
+            if k=1 then
+              if p(3)='0' then
+                eval_white_pawns(file_index)<=eval_white_pawns(file_index)+1;
+                if search_index/8<eval_white_min(file_index) then eval_white_min(file_index)<=search_index/8; end if;
+                if search_index/8>eval_white_max(file_index) then eval_white_max(file_index)<=search_index/8; end if;
+              else
+                eval_black_pawns(file_index)<=eval_black_pawns(file_index)+1;
+                if search_index/8<eval_black_min(file_index) then eval_black_min(file_index)<=search_index/8; end if;
+                if search_index/8>eval_black_max(file_index) then eval_black_max(file_index)<=search_index/8; end if;
+              end if;
+            elsif k=3 then
+              n:=0; if search_index/=0 then
+                n:=eval_white_bishops; if p(3)='1' then n:=eval_black_bishops; end if;
+              end if;
+              if p(3)='0' then eval_white_bishops<=n+1; else eval_black_bishops<=n+1; end if;
+            elsif k=4 then
+              n:=0; if search_index/=0 then
+                n:=eval_white_rooks(file_index); if p(3)='1' then n:=eval_black_rooks(file_index); end if;
+              end if;
+              if p(3)='0' then eval_white_rooks(file_index)<=n+1; else eval_black_rooks(file_index)<=n+1; end if;
+            end if;
+            if search_index=63 then
+              node_hash(search_sp)<=next_hash; eval_file<=0; state<=EVAL_PAWNS;
+            else search_index<=search_index+1; end if;
+          when EVAL_PAWNS=>
+            n:=eval_file; mg:=0; eg:=0; white_bonus:=0; black_bonus:=0;
+            white_passed:=eval_white_pawns(n)>0; black_passed:=eval_black_pawns(n)>0;
+            if eval_black_pawns(n)>0 and eval_black_max(n)>eval_white_max(n) then white_passed:=false; end if;
+            if eval_white_pawns(n)>0 and eval_white_min(n)<eval_black_min(n) then black_passed:=false; end if;
+            if n>0 then
+              white_bonus:=white_bonus+eval_white_pawns(n-1); black_bonus:=black_bonus+eval_black_pawns(n-1);
+              if eval_black_pawns(n-1)>0 and eval_black_max(n-1)>eval_white_max(n) then white_passed:=false; end if;
+              if eval_white_pawns(n-1)>0 and eval_white_min(n-1)<eval_black_min(n) then black_passed:=false; end if;
+            end if;
+            if n<7 then
+              white_bonus:=white_bonus+eval_white_pawns(n+1); black_bonus:=black_bonus+eval_black_pawns(n+1);
+              if eval_black_pawns(n+1)>0 and eval_black_max(n+1)>eval_white_max(n) then white_passed:=false; end if;
+              if eval_white_pawns(n+1)>0 and eval_white_min(n+1)<eval_black_min(n) then black_passed:=false; end if;
+            end if;
+            if white_bonus=0 then mg:=mg-eval_white_pawns(n)*12; eg:=eg-eval_white_pawns(n)*18; end if;
+            if black_bonus=0 then mg:=mg+eval_black_pawns(n)*12; eg:=eg+eval_black_pawns(n)*18; end if;
+            if eval_white_pawns(n)>1 then mg:=mg-(eval_white_pawns(n)-1)*14; eg:=eg-(eval_white_pawns(n)-1)*20; end if;
+            if eval_black_pawns(n)>1 then mg:=mg+(eval_black_pawns(n)-1)*14; eg:=eg+(eval_black_pawns(n)-1)*20; end if;
+            if white_passed then k:=eval_white_max(n); mg:=mg+k*k*3; eg:=eg+k*k*8; end if;
+            if black_passed then k:=7-eval_black_min(n); mg:=mg-k*k*3; eg:=eg-k*k*8; end if;
+            if eval_white_pawns(n)=0 then
+              mg:=mg+eval_white_rooks(n)*14;
+              if abs(n-active_wk mod 8)<=1 then mg:=mg-12; end if;
+            end if;
+            if eval_black_pawns(n)=0 then
+              mg:=mg-eval_black_rooks(n)*14;
+              if abs(n-active_bk mod 8)<=1 then mg:=mg+12; end if;
+            end if;
+            if eval_white_pawns(n)=0 and eval_black_pawns(n)=0 then mg:=mg+(eval_white_rooks(n)-eval_black_rooks(n))*12; end if;
+            if n=0 then
+              if eval_white_bishops>=2 then mg:=mg+28; eg:=eg+40; end if;
+              if eval_black_bishops>=2 then mg:=mg-28; eg:=eg-40; end if;
+            end if;
+            eval_mg<=eval_mg+mg*to_integer(unsigned(policy(13)))/16;
+            eval_eg<=eval_eg+eg*to_integer(unsigned(policy(13)))/16;
+            if eval_file=7 then state<=EVAL_BLEND; else eval_file<=eval_file+1; end if;
+          when EVAL_BLEND=>
+            ph:=eval_phase; if ph>24 then ph:=24; end if;
+            eval_blend_mg<=eval_mg*ph; eval_blend_eg<=eval_eg*(24-ph); state<=EVAL_DONE;
+          when EVAL_DONE=>
+            score:=(eval_blend_mg+eval_blend_eg)/24; if turn='1' then score:=-score; end if;
+            if score>25000 then score:=25000; elsif score< -25000 then score:=-25000; end if;
+            node_draw(search_sp)<='0';
+            if eval_heavy='0' and (eval_minors<=1 or (eval_knights=0 and eval_bishop_colors/="11")) then
+              node_draw(search_sp)<='1'; score:=0;
+            end if;
+            node_static(search_sp)<=score; state<=SEARCH_BEGIN;
           when SEARCH_BEGIN=>
+            node_cache_word<=cache_data;
             search_nodes<=search_nodes+1; node_legal(search_sp)<='0'; node_check(search_sp)<=enemy_a(own_king);
+            node_count(search_sp)<=0; node_hint_valid(search_sp)<='0'; node_cached(search_sp)<='0'; node_repetition(search_sp)<='0';
+            node_best_move(search_sp)<=(others=>'0');
+            node_start_alpha(search_sp)<=node_alpha(search_sp); node_start_beta(search_sp)<=node_beta(search_sp);
             node_best(search_sp)<=30000;
             if active_turn=turn then node_best(search_sp)<=-30000; end if;
             -- At the quiescent frontier allow standing pat only out of check.
-            if search_sp+1>=to_integer(unsigned(policy(10))) and enemy_a(own_king)='0' then
+            if search_sp+1>=search_iteration and enemy_a(own_king)='0' then
               node_best(search_sp)<=node_static(search_sp);
+              if active_turn=turn and node_static(search_sp)>node_alpha(search_sp) then node_alpha(search_sp)<=node_static(search_sp); end if;
+              if active_turn/=turn and node_static(search_sp)<node_beta(search_sp) then node_beta(search_sp)<=node_static(search_sp); end if;
             end if;
-            src<=0; dst<=0; promotion<=2; promoting<='0'; state<=PICK;
+            state<=CACHE_PROBE;
+          when CACHE_PROBE=>
+            repeated:=false;
+            for i in 0 to SEARCH_LEVELS-1 loop
+              if i<search_sp and node_hash(i)=node_hash(search_sp) then repeated:=true; end if;
+            end loop;
+            search_building<='1'; src<=0; dst<=0; promotion<=2; promoting<='0'; state<=PICK;
+            remaining_depth:=search_iteration-search_sp-1; if remaining_depth<0 then remaining_depth:=0; end if;
+            remaining_q:=0;
+            if policy(15)(0)='1' then remaining_q:=search_iteration+to_integer(unsigned(policy(41)))-search_sp-1; end if;
+            if remaining_q<0 then remaining_q:=0; elsif remaining_q>MAX_QUIESCENCE then remaining_q:=MAX_QUIESCENCE; end if;
+            if node_draw(search_sp)='1' then search_result<=0; state<=SEARCH_RETURN;
+            elsif repeated then
+              node_repetition(search_sp)<='1'; search_result<=0; state<=SEARCH_RETURN;
+            elsif policy(42)(0)='1' and node_cache_word(127)='1' and unsigned(node_cache_word(126 downto 111))=search_epoch and
+                  unsigned(node_cache_word(110 downto 47))=node_hash(search_sp) then
+              search_cache_hits<=search_cache_hits+1;
+              node_hint(search_sp)<=node_cache_word(20 downto 5); node_hint_valid(search_sp)<='1';
+              score:=to_integer(signed(node_cache_word(46 downto 31)));
+              if score>27000 then score:=score-search_sp-1; elsif score< -27000 then score:=score+search_sp+1; end if;
+              if unsigned(node_cache_word(30 downto 27))>=remaining_depth and unsigned(node_cache_word(26 downto 23))>=remaining_q and
+                 unsigned(node_cache_word(4 downto 1))>=SEARCH_LEVELS-search_sp-1 and
+                 (node_cache_word(22 downto 21)="00" or (node_cache_word(22 downto 21)="01" and score>=node_beta(search_sp)) or
+                  (node_cache_word(22 downto 21)="10" and score<=node_alpha(search_sp))) then
+                node_cached(search_sp)<='1'; search_result<=score; state<=SEARCH_RETURN;
+              end if;
+            end if;
+          when NODE_READY=>
+            search_building<='0'; node_remaining(search_sp)<=node_count(search_sp); state<=ADVANCE;
+          when MOVE_SELECT=>
+            picked:=search_pick_data; picked_index:=search_pick_index;
+            if search_scan=0 or unsigned(queue_data(31 downto 16))>unsigned(picked(31 downto 16)) then
+              picked:=queue_data; picked_index:=search_scan;
+            end if;
+            search_pick_data<=picked; search_pick_index<=picked_index;
+            if search_scan+1=node_remaining(search_sp) then state<=MOVE_APPLY;
+            else search_scan<=search_scan+1; end if;
+          when MOVE_APPLY=>
+            queue_we<='1'; queue_write_address<=search_sp*SEARCH_MOVES+search_pick_index; queue_write_data<=queue_data;
+            node_remaining(search_sp)<=node_remaining(search_sp)-1;
+            src<=to_integer(unsigned(search_pick_data(5 downto 0))); dst<=to_integer(unsigned(search_pick_data(11 downto 6)));
+            promotion<=2;
+            if unsigned(search_pick_data(14 downto 12))/=0 then promotion<=to_integer(unsigned(search_pick_data(14 downto 12))); end if;
+            state<=PICK;
           when SEARCH_RECALL_WAIT=>state<=SEARCH_RECALL_COPY;
           when SEARCH_RECALL_COPY=>
             b(search_index)<=search_q;
@@ -693,23 +969,53 @@ begin
           when SEARCH_ACCEPT=>
             score:=node_best(search_sp);
             if active_turn=turn then
-              if search_result>score then score:=search_result; end if;
+              if search_result>score then score:=search_result; node_best_move(search_sp)<=candidate_move; end if;
               if score>node_alpha(search_sp) then node_alpha(search_sp)<=score; end if;
               valid:=score>=node_beta(search_sp);
             else
-              if search_result<score then score:=search_result; end if;
+              if search_result<score then score:=search_result; node_best_move(search_sp)<=candidate_move; end if;
               if score<node_beta(search_sp) then node_beta(search_sp)<=score; end if;
               valid:=score<=node_alpha(search_sp);
             end if;
             node_best(search_sp)<=score;
             if valid then
               search_cutoffs<=search_cutoffs+1; search_result<=score; state<=SEARCH_RETURN;
+              if node_tactical(search_sp)='0' then
+                if node_killer1(search_sp)/=candidate_move then
+                  node_killer2(search_sp)<=node_killer1(search_sp); node_killer1(search_sp)<=candidate_move;
+                end if;
+                n:=search_iteration-search_sp; if n<1 then n:=1; end if;
+                n:=to_integer(history_data)+n*n; if n>8191 then n:=8191; end if;
+                history_we<='1'; history_write_address<=src*64+dst; history_write_data<=to_unsigned(n,13);
+              end if;
             else
               search_returning<='0'; search_index<=0; state<=SEARCH_RECALL_WAIT;
             end if;
           when SEARCH_RETURN=>
+            search_building<='0';
+            if policy(42)(0)='1' and node_cached(search_sp)='0' and node_repetition(search_sp)='0' then
+              cache_word:=(others=>'0'); cache_word(127):='1';
+              cache_word(126 downto 111):=std_logic_vector(search_epoch);
+              cache_word(110 downto 47):=std_logic_vector(node_hash(search_sp));
+              score:=search_result;
+              -- Store mate distance relative to this position, not its root ply.
+              if score>27000 then score:=score+search_sp+1; elsif score< -27000 then score:=score-search_sp-1; end if;
+              cache_word(46 downto 31):=std_logic_vector(to_signed(score,16));
+              n:=search_iteration-search_sp-1; if n<0 then n:=0; end if;
+              cache_word(30 downto 27):=std_logic_vector(to_unsigned(n,4));
+              n:=0; if policy(15)(0)='1' then n:=search_iteration+to_integer(unsigned(policy(41)))-search_sp-1; end if;
+              if n<0 then n:=0; elsif n>MAX_QUIESCENCE then n:=MAX_QUIESCENCE; end if;
+              cache_word(26 downto 23):=std_logic_vector(to_unsigned(n,4));
+              if search_result<=node_start_alpha(search_sp) then cache_word(22 downto 21):="10";
+              elsif search_result>=node_start_beta(search_sp) then cache_word(22 downto 21):="01"; end if;
+              cache_word(20 downto 5):=node_best_move(search_sp);
+              cache_word(4 downto 1):=std_logic_vector(to_unsigned(SEARCH_LEVELS-search_sp-1,4));
+              cache_we<='1'; cache_write_address<=to_integer(node_hash(search_sp)(CACHE_INDEX_BITS-1 downto 0)); cache_write_data<=cache_word;
+              search_cache_stores<=search_cache_stores+1;
+            end if;
             if search_sp=0 then state<=SEARCH_ROOT;
             else
+              if node_repetition(search_sp)='1' then node_repetition(search_sp-1)<='1'; end if;
               search_sp<=search_sp-1; search_index<=0; search_returning<='1';
               src<=cursor_src(search_sp-1); dst<=cursor_dst(search_sp-1);
               promotion<=cursor_promotion(search_sp-1); promoting<=cursor_promoting(search_sp-1);
@@ -719,7 +1025,7 @@ begin
             search_part:=search_result-base_static;
             -- Mate scores are absolute terminal outcomes, independent of the
             -- starting material advantage or the learned positional weights.
-            if abs(search_result)>27000 then search_part:=search_result; end if;
+            if abs(search_result)>27000 then search_part:=search_result; search_parts<=(others=>'0'); end if;
             search_delta_score<=clip16(search_part); state<=SEARCH_SUM;
           when SEARCH_SUM=>
             -- A balanced, registered adder tree is shared by spatial-only and
@@ -742,7 +1048,7 @@ begin
             end if;
             -- synthesis translate_on
             if legal_count<256 then
-              candidate_we<='1'; candidate_write_index<=legal_count;
+              candidate_we<='1'; candidate_write_index<=candidate_bank*256+legal_count;
               candidate_write_data<=search_root_move&std_logic_vector(to_signed(score,16))&search_parts&std_logic_vector(to_signed(search_delta_score,16));
               legal_count<=legal_count+1;
             end if;
@@ -755,31 +1061,53 @@ begin
             search_active<='0'; b<=base; state<=ADVANCE;
           when RESTORE=>b<=base; state<=ADVANCE;
           when ADVANCE=>
-            if promoting='1' and promotion<5 then promotion<=promotion+1; state<=PICK;
+            if search_active='1' and search_building='0' then
+              if node_remaining(search_sp)=0 then
+                score:=node_best(search_sp);
+                if node_legal(search_sp)='0' then
+                  score:=0;
+                  if node_check(search_sp)='1' then
+                    score:=28000-(search_sp+1); if active_turn=turn then score:=-score; end if;
+                  end if;
+                end if;
+                search_result<=score; state<=SEARCH_RETURN;
+              else
+                search_scan<=0; search_pick_index<=0; search_pick_data<=(others=>'0'); state<=MOVE_SELECT;
+              end if;
+            elsif promoting='1' and promotion<5 then promotion<=promotion+1; state<=PICK;
             else
               promotion<=2;
               if dst=63 then
                 dst<=0;
                 if src=63 then
-                  if search_active='1' then
-                    score:=node_best(search_sp);
-                    if node_legal(search_sp)='0' then
-                      score:=0;
-                      if node_check(search_sp)='1' then
-                        score:=28000-(search_sp+1);
-                        if active_turn=turn then score:=-score; end if;
-                      end if;
-                    end if;
-                    search_result<=score; state<=SEARCH_RETURN;
-                  else state<=FINISH; end if;
+                  if search_active='1' then state<=NODE_READY; else state<=FINISH; end if;
                 else src<=src+1; state<=PICK; end if;
               else dst<=dst+1; state<=PICK; end if;
             end if;
-          when FINISH=>done<='1'; state<=IDLE; b<=base;
+          when FINISH=>
+            published_bank<=candidate_bank; completed_count<=legal_count; completed_move<=best_move; completed_score<=best_score;
+            search_completed<=search_iteration; search_has_completed<='1'; b<=base;
+            if legal_count>0 and search_iteration>=2 and search_iteration<to_integer(unsigned(policy(10))) and
+               (search_limit=0 or elapsed<search_limit) then
+              candidate_bank<=1-candidate_bank; search_iteration<=search_iteration+1;
+              legal_count<=0; best_move<=(others=>'0'); best_score<=-32768;
+              src<=0; dst<=0; promotion<=2; promoting<='0'; search_active<='0'; state<=PICK;
+            else
+              done<='1'; state<=IDLE; search_running<='0';
+              if legal_count>0 and search_iteration<to_integer(unsigned(policy(10))) then search_timed_out<='1'; end if;
+            end if;
         end case;
 
+        -- A completed iteration has its own candidate RAM bank. Budget expiry
+        -- discards the partial next iteration and publishes only that full set.
+        if search_running='1' and search_has_completed='1' and search_limit/=0 and elapsed>=search_limit and state/=FINISH then
+          search_active<='0'; search_building<='0'; search_running<='0'; search_timed_out<='1';
+          state<=IDLE; b<=base; done<='1';
+          legal_count<=completed_count; best_move<=completed_move; best_score<=completed_score;
+        end if;
+
         if keys(2)='1' and old_keys(2)='0' and state/=LOAD_SCAN and state/=LOAD_FINISH and state/=BOOT_POLICY and state/=LOAD_POLICY and state/=LOAD_ROUTES then
-          search_active<='0'; state<=IDLE; base<=initial_board; b<=initial_board; turn<='0'; rights<="1111"; ep<=64;
+          search_active<='0'; search_running<='0'; state<=IDLE; base<=initial_board; b<=initial_board; turn<='0'; rights<="1111"; ep<=64;
           wk<=4; bk<=60; done<='0'; legal_count<=0; field_valid<=(others=>'0'); field_leds<=(others=>'0'); generation<=generation+1; history_count<=0; nonpawn_count<=14;
         end if;
         if command_pending='1' then
@@ -810,7 +1138,7 @@ begin
               when 3=>
                 if len/=1 then response_status_i<=1; cached_status<=1;
                 elsif state=BOOT_POLICY then response_status_i<=3; cached_status<=3;
-                else search_active<='0'; state<=IDLE; b<=base; done<='0'; end if;
+                else search_active<='0'; search_running<='0'; state<=IDLE; b<=base; done<='0'; end if;
               when 4=>
                 if len/=1 then response_status_i<=1;
                 else response_kind<=4; response_length<=80; end if;
@@ -840,7 +1168,7 @@ begin
                 if len/=1 then response_status_i<=1; cached_status<=1;
                 elsif policy_initialized='0' then response_status_i<=3; cached_status<=3;
                 else
-                  search_active<='0'; state<=IDLE; base<=initial_board; b<=initial_board; turn<='0'; rights<="1111"; ep<=64;
+                  search_active<='0'; search_running<='0'; state<=IDLE; base<=initial_board; b<=initial_board; turn<='0'; rights<="1111"; ep<=64;
                   wk<=4; bk<=60; done<='0'; legal_count<=0; field_valid<=(others=>'0'); field_leds<=(others=>'0'); generation<=generation+1; history_count<=0; nonpawn_count<=14;
                 end if;
               when 11=>
@@ -867,14 +1195,15 @@ begin
                 else policy_page<=to_integer(unsigned(packet_rx(1))); response_kind<=12; response_length<=64; end if;
               when 13=>
                 if len/=66 or state/=IDLE or unsigned(packet_rx(1))>1 then response_status_i<=3; cached_status<=3;
-                elsif packet_rx(1)=x"00" and (unsigned(packet_rx(12))>3 or unsigned(packet_rx(14))>32 or unsigned(packet_rx(15))>32 or unsigned(packet_rx(17))>1) then
+                elsif packet_rx(1)=x"00" and (unsigned(packet_rx(12))=1 or unsigned(packet_rx(12))>MAX_SEARCH_DEPTH or unsigned(packet_rx(14))>32 or unsigned(packet_rx(15))>32 or unsigned(packet_rx(17))>1 or
+                      unsigned(packet_rx(42))>60 or unsigned(packet_rx(43))>MAX_QUIESCENCE or unsigned(packet_rx(44))>1) then
                   response_status_i<=3; cached_status<=3;
                 else
                   policy_page<=to_integer(unsigned(packet_rx(1)(0 downto 0))); policy_index<=0;
                   state<=LOAD_POLICY; response_done<='0'; done<='0';
                 end if;
               when 18=>
-                if len=1 then response_kind<=18; response_length<=10;
+                if len=1 then response_kind<=18; response_length<=20;
                 else response_status_i<=1; end if;
               when 14=>
                 if len/=2 or unsigned(packet_rx(1))>63 then response_status_i<=3;

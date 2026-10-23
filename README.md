@@ -5,8 +5,8 @@ using the same **Pico W / 115200-baud UART / Wi-Fi webpage** workflow as the
 oscilloscope example. All RTL, firmware, artwork, web files, and build scripts
 are included here. Move this entire project folder wherever you want.
 
-The FPGA generates legal moves, runs the recurrent field and up to three-ply
-search, and chooses the computer's move. The Pico W hosts its own Wi-Fi network
+The FPGA generates legal moves, runs the recurrent field and up to six-ply
+search with capture extensions, and chooses the computer's move. The Pico W hosts its own Wi-Fi network
 and serves the complete page from flash. The browser handles your moves,
 history, draw rules, and an independent check of the FPGA's complete legal set.
 
@@ -36,8 +36,12 @@ history, draw rules, and an independent check of the FPGA's complete legal set.
 
 The page includes all four promotions, undo, board flipping, game restoration
 after reload, PGN download, checkmate/stalemate, automatic draw rules, and
-threefold/fifty-move draw claims. Change lookahead between Spatial, 2 ply, and
-3 ply. **Play FPGA turn** resumes after a stopped search or a reconnect.
+threefold/fifty-move draw claims. Lookahead includes Spatial and 2 through 6 ply;
+the default targets **5 ply with a 10-second think budget**. Choose 3, 10, 20,
+or 30 seconds. The FPGA keeps the last complete iteration if time runs out,
+and the page shows the completed depth and cache reuse. The first complete
+iteration can exceed a very short budget. **Play FPGA turn** resumes after a
+stopped search or a reconnect.
 Saved history is local to your browser; use one controlling browser tab.
 
 Wi-Fi startup matches the oscilloscope reference: `WiFi.softAP(...)` uses the
@@ -53,6 +57,19 @@ Drag pieces with a mouse or finger, or tap a piece and its destination. Illegal
 and off-board drops leave the piece in place, and promotions still offer all
 four pieces. The page stays still for gestures that start on the board; start a
 swipe outside the board to scroll the page.
+
+The expanded engine uses a **4,096-entry position cache in M9K block RAM**,
+ordered alpha-beta search, iterative deepening, and up to four capture/promotion
+extension plies with check evasions. Evaluation blends middlegame and endgame
+piece placement and includes passed/isolated/doubled pawns, bishop pairs, rook
+files, and king shelter. The fitted design uses **29,371 / 49,760 logic elements
+(59%)** and **917,128 / 1,677,312 memory bits (55%)**, occupying **125 / 182 M9K
+blocks (69%)**, with passing 50 MHz timing.
+On the independent mate-in-three regression set, it finds a winning first move
+in **12/12 positions**, compared with **2/12** for the previous engine. This is
+a focused tactical result, not an Elo estimate.
+See [docs/ENGINE.md](docs/ENGINE.md) for the search design and controls. Load
+**both new FPGA and Pico images** for the expanded controls.
 
 **KEY0** resets the endpoint. **KEY1** starts evaluation on the currently loaded
 position for bench diagnostics. LEDR9 indicates engine activity, LEDR8 the side
@@ -101,6 +118,8 @@ results and the remaining physical-board checks.
 # Optional portable test tools: GHDL and python-chess, downloaded into .cache/.
 powershell -ExecutionPolicy Bypass -File tools/setup_test_tools.ps1
 powershell -ExecutionPolicy Bypass -File tools/verify.ps1
+# Add the independently proven five-ply mate benchmark (longer simulation).
+powershell -ExecutionPolicy Bypass -File tools/verify.ps1 -Strength
 ```
 
 Verification uses Python 3.10+, `python-chess`, Node.js 18+, GHDL, and a native

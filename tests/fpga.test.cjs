@@ -4,14 +4,14 @@ const {Game,uci,decode}=require('../web/chess.js');
 const {Fpga,hex,unhex}=require('../web/fpga.js');
 assert.deepEqual(Array.from(unhex(hex([0,255,1,128]))),[0,255,1,128]);
 assert.throws(()=>unhex('xz'));
-function fixture({badLegal=false,badBoard=false,timeout=false}={}) {
-  const game=new Game(),calls=[];let position=game.position.clone(),generation=2,done=false,stopped=false;
+function fixture({badLegal=false,badBoard=false,timeout=false,version=4}={}) {
+  const game=new Game(),calls=[],policies=[];let position=game.position.clone(),generation=2,done=false,stopped=false;
   const fetcher=async(url,request)=>{
     const a=unhex(request.body),sub=a[0];calls.push(sub);
     let out=[];
     switch(sub) {
       case 0: {
-        out=new Uint8Array(32);out.set([83,67,70,49]);out[4]=timeout?1:0;out[5]=done?1:0;out[15]=3;
+        out=new Uint8Array(32);out.set([83,67,70,49]);out[4]=timeout?1:0;out[5]=done?1:0;out[15]=version;
         const moves=position.legalMoves(),best=moves.find(m=>uci(m)==='e2e4')??moves[0];
         out[8]=moves.length>>8;out[9]=moves.length&255;out[10]=best>>8;out[11]=best&255;
         out[20]=generation>>>24;out[21]=(generation>>>16)&255;out[22]=(generation>>>8)&255;out[23]=generation&255;break;
@@ -30,16 +30,25 @@ function fixture({badLegal=false,badBoard=false,timeout=false}={}) {
         position.make(move);break;
       }
       case 12: out=new Uint8Array(64);break;
-      case 18: out=Uint8Array.from([0,0,1,0,0,0,0,4,3,1]);break;
+      case 13:policies.push(Array.from(a.slice(2)));out=[0];break;
+      case 18: out=Uint8Array.from([0,0,1,0,0,0,0,4,5,4,5,2,0,0,0,12,0,0,0,34]);break;
       default:out=[0];
     }
     return {ok:true,json:async()=>({status:0,payload:hex(out)})};
   };
-  return {game,calls,device:new Fpga(fetcher),stopped:()=>stopped};
+  return {game,calls,policies,device:new Fpga(fetcher),stopped:()=>stopped};
 }
 (async()=>{
   const good=fixture();const evaluation=await good.device.evaluate(good.game);
   assert.equal(uci(evaluation.move),'e2e4');assert.equal(evaluation.nodes,256);
+  assert.equal(evaluation.depth,5);assert.equal(evaluation.cacheHits,12);assert.equal(evaluation.cacheStores,34);
+  assert.equal(good.policies[0][10],5);assert.equal(good.policies[0][40],10);
+  const deep=fixture();await deep.device.setDepth(6,30);
+  assert.equal(deep.policies[0][10],6);assert.equal(deep.policies[0][40],30);
+  await assert.rejects(()=>deep.device.setDepth(7),/Unsupported/);
+  await assert.rejects(()=>deep.device.setDepth(6,61),/Think time/);
+  const legacy=fixture({version:3});await assert.rejects(()=>legacy.device.setDepth(5),/expanded DE10-Lite/);
+  await legacy.device.setDepth(3);
   assert(good.calls.includes(7));assert(good.calls.includes(11));
   for(const options of [{badLegal:true},{badBoard:true}]) {
     const f=fixture(options);await assert.rejects(()=>f.device.evaluate(f.game));
@@ -49,5 +58,5 @@ function fixture({badLegal=false,badBoard=false,timeout=false}={}) {
   assert(!cancelled.calls.includes(11));
   const broken=new Fpga(async()=>({ok:false,json:async()=>({error:'No FPGA reply'})}));
   await assert.rejects(()=>broken.status(),/No FPGA reply/);
-  console.log('Transport, legal-set verification, board readback, commit guards, cancellation and disconnected hardware checks passed.');
+  console.log('Transport, six-ply/time controls, version checks, search telemetry, legal-set verification, board readback, commit guards, cancellation and disconnected hardware checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

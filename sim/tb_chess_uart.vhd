@@ -71,7 +71,8 @@ begin
       assert count=length+12 report "UART response timed out" severity failure;
       assert received(0)=x"46" and received(1)=x"43" and received(2)=x"01" report "bad reply magic" severity failure;
       for i in 0 to 3 loop assert received(3+i)=oct(token/(256**(3-i))) report "wrong sequence" severity failure;end loop;
-      assert received(7)=oct(status) report "wrong response status" severity failure;
+      assert received(7)=oct(status) report "wrong response status for command "&integer'image(to_integer(unsigned(packet(0))))&
+        ": actual "&integer'image(to_integer(unsigned(received(7))))&" expected "&integer'image(status) severity failure;
       assert received(8)=oct(length/256) and received(9)=oct(length) report "wrong length" severity failure;
       for i in 2 to length+9 loop c:=crc_byte(c,received(i));end loop;
       assert received(length+10)=std_logic_vector(c(15 downto 8)) and received(length+11)=std_logic_vector(c(7 downto 0)) report "reply CRC mismatch" severity failure;
@@ -83,7 +84,7 @@ begin
     reset<='1';wait for 200 ns;wait until falling_edge(clk);reset<='0';wait for 20 us;
     status_read;
     assert received(10)=x"53" and received(11)=x"43" and received(12)=x"46" and received(13)=x"31" report "status pipeline corrupted" severity failure;
-    assert received(25)=x"03" report "wrong chess protocol" severity failure;
+    assert received(25)=x"04" report "wrong chess protocol" severity failure;
 
     -- Lost reply / retry cannot reset the factual position twice.
     packet(0):=x"0A";token:=token+1;send(1);response(1);
@@ -114,6 +115,24 @@ begin
     end loop;
     packet(0):=x"0D";packet(1):=x"00";
     for i in 0 to 63 loop packet(i+2):=policy_defaults(i);end loop;
+    -- Validate deeper-search limits through the real framed UART bridge.
+    for bad in 0 to 4 loop
+      packet(12):=x"05";packet(42):=x"0A";packet(43):=x"04";packet(44):=x"01";
+      case bad is
+        when 0=>packet(12):=x"01";
+        when 1=>packet(12):=x"07";
+        when 2=>packet(42):=x"3D";
+        when 3=>packet(43):=x"05";
+        when others=>packet(44):=x"02";
+      end case;
+      token:=token+1;send(66);response(1,3);
+    end loop;
+    packet(12):=x"06";packet(42):=x"0A";packet(43):=x"04";packet(44):=x"01";
+    token:=token+1;send(66);response(1);
+    packet(0):=x"0C";token:=token+1;send(2);response(64);
+    assert received(20)=x"06" and received(50)=x"0A" and received(51)=x"04" and received(52)=x"01"
+      report "expanded policy upload/readback mismatch" severity failure;
+    packet(0):=x"0D";
     packet(12):=x"00";token:=token+1;send(66);response(1);
     packet(0):=x"02";token:=token+1;send(1);response(1);
     for poll in 0 to 500 loop
@@ -124,6 +143,9 @@ begin
     best:=to_integer(unsigned(received(20)))*256+to_integer(unsigned(received(21)));
     gen:=to_integer(unsigned(received(33)));
     assert legal=20 report "wrong starting legal set" severity failure;
+    packet(0):=x"12";token:=token+1;send(1);response(20);
+    assert received(18)=x"00" and received(19)=x"04" and received(20)=x"00" and received(21)=x"02"
+      report "expanded search telemetry framing mismatch" severity failure;
     expected(1+16*64):=true;expected(1+18*64):=true;
     expected(6+21*64):=true;expected(6+23*64):=true;
     for s in 8 to 15 loop expected(s+(s+8)*64):=true;expected(s+(s+16)*64):=true;end loop;

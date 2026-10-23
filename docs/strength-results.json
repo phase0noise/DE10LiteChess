@@ -1,0 +1,362 @@
+{
+  "expandedPassed": 12,
+  "total": 12,
+  "expandedNormalDepth": 5,
+  "expandedQuiescence": 0,
+  "clockHz": 50000000,
+  "cases": [
+    {
+      "name": "mate-three-1-white",
+      "fen": "7k/8/8/6Q1/5K2/8/8/8 w - - 0 1",
+      "winning": [
+        "f4e5",
+        "f4f5"
+      ],
+      "winningCodes": [
+        2333,
+        2397
+      ]
+    },
+    {
+      "name": "mate-three-1-black",
+      "fen": "8/8/8/5k2/6q1/8/8/7K b - - 0 1",
+      "winning": [
+        "f5e4",
+        "f5f4"
+      ],
+      "winningCodes": [
+        1829,
+        1893
+      ]
+    },
+    {
+      "name": "mate-three-2-white",
+      "fen": "7k/8/8/4K3/8/8/3Q4/8 w - - 0 1",
+      "winning": [
+        "d2d7",
+        "d2g2",
+        "d2g5",
+        "e5f6"
+      ],
+      "winningCodes": [
+        3275,
+        907,
+        2443,
+        2916
+      ]
+    },
+    {
+      "name": "mate-three-2-black",
+      "fen": "8/3q4/8/8/4k3/8/8/7K b - - 0 1",
+      "winning": [
+        "d7d2",
+        "d7g4",
+        "d7g7",
+        "e4f3"
+      ],
+      "winningCodes": [
+        755,
+        1971,
+        3507,
+        1372
+      ]
+    },
+    {
+      "name": "mate-three-3-white",
+      "fen": "7k/8/8/8/5K2/8/6Q1/8 w - - 0 1",
+      "winning": [
+        "f4e5",
+        "f4f5"
+      ],
+      "winningCodes": [
+        2333,
+        2397
+      ]
+    },
+    {
+      "name": "mate-three-3-black",
+      "fen": "8/6q1/8/5k2/8/8/8/7K b - - 0 1",
+      "winning": [
+        "f5e4",
+        "f5f4"
+      ],
+      "winningCodes": [
+        1829,
+        1893
+      ]
+    },
+    {
+      "name": "mate-three-4-white",
+      "fen": "7k/8/8/8/6K1/8/6Q1/8 w - - 0 1",
+      "winning": [
+        "g4f5"
+      ],
+      "winningCodes": [
+        2398
+      ]
+    },
+    {
+      "name": "mate-three-4-black",
+      "fen": "8/6q1/8/6k1/8/8/8/7K b - - 0 1",
+      "winning": [
+        "g5f4"
+      ],
+      "winningCodes": [
+        1894
+      ]
+    },
+    {
+      "name": "mate-three-5-white",
+      "fen": "7k/8/8/4K3/8/2Q5/8/8 w - - 0 1",
+      "winning": [
+        "c3c7",
+        "c3g3",
+        "e5f6"
+      ],
+      "winningCodes": [
+        3218,
+        1426,
+        2916
+      ]
+    },
+    {
+      "name": "mate-three-5-black",
+      "fen": "8/8/2q5/8/4k3/8/8/7K b - - 0 1",
+      "winning": [
+        "c6c2",
+        "c6g6",
+        "e4f3"
+      ],
+      "winningCodes": [
+        682,
+        2986,
+        1372
+      ]
+    },
+    {
+      "name": "mate-three-6-white",
+      "fen": "7k/8/4Q3/6K1/8/8/8/8 w - - 0 1",
+      "winning": [
+        "e6d7",
+        "e6e7",
+        "g5f6"
+      ],
+      "winningCodes": [
+        3308,
+        3372,
+        2918
+      ]
+    },
+    {
+      "name": "mate-three-6-black",
+      "fen": "8/8/8/8/6k1/4q3/8/7K b - - 0 1",
+      "winning": [
+        "e3d2",
+        "e3e2",
+        "g4f3"
+      ],
+      "winningCodes": [
+        724,
+        788,
+        1374
+      ]
+    }
+  ],
+  "positions": [
+    {
+      "position": 0,
+      "best": 2333,
+      "depth": 5,
+      "nodes": 22640,
+      "cacheHits": 13209,
+      "cycles": 44517608
+    },
+    {
+      "position": 1,
+      "best": 1829,
+      "depth": 5,
+      "nodes": 23597,
+      "cacheHits": 13955,
+      "cycles": 46063992
+    },
+    {
+      "position": 2,
+      "best": 907,
+      "depth": 5,
+      "nodes": 36569,
+      "cacheHits": 21795,
+      "cycles": 72237336
+    },
+    {
+      "position": 3,
+      "best": 1372,
+      "depth": 5,
+      "nodes": 39313,
+      "cacheHits": 24369,
+      "cycles": 76915748
+    },
+    {
+      "position": 4,
+      "best": 2333,
+      "depth": 5,
+      "nodes": 32254,
+      "cacheHits": 18447,
+      "cycles": 64053688
+    },
+    {
+      "position": 5,
+      "best": 1829,
+      "depth": 5,
+      "nodes": 30566,
+      "cacheHits": 17673,
+      "cycles": 60826700
+    },
+    {
+      "position": 6,
+      "best": 2398,
+      "depth": 5,
+      "nodes": 32203,
+      "cacheHits": 18603,
+      "cycles": 63647196
+    },
+    {
+      "position": 7,
+      "best": 1894,
+      "depth": 5,
+      "nodes": 29652,
+      "cacheHits": 18309,
+      "cycles": 57474368
+    },
+    {
+      "position": 8,
+      "best": 1426,
+      "depth": 5,
+      "nodes": 35967,
+      "cacheHits": 20951,
+      "cycles": 71381980
+    },
+    {
+      "position": 9,
+      "best": 1372,
+      "depth": 5,
+      "nodes": 38962,
+      "cacheHits": 23295,
+      "cycles": 76921268
+    },
+    {
+      "position": 10,
+      "best": 2918,
+      "depth": 5,
+      "nodes": 34192,
+      "cacheHits": 22192,
+      "cycles": 65316696
+    },
+    {
+      "position": 11,
+      "best": 724,
+      "depth": 5,
+      "nodes": 32715,
+      "cacheHits": 21668,
+      "cycles": 61919464
+    }
+  ],
+  "baselinePassed": 2,
+  "baseline": [
+    {
+      "position": 0,
+      "best": 2342,
+      "depth": 0,
+      "nodes": 1148,
+      "cacheHits": 0,
+      "cycles": 968012
+    },
+    {
+      "position": 1,
+      "best": 1822,
+      "depth": 0,
+      "nodes": 1610,
+      "cacheHits": 0,
+      "cycles": 1127388
+    },
+    {
+      "position": 2,
+      "best": 1867,
+      "depth": 0,
+      "nodes": 1608,
+      "cacheHits": 0,
+      "cycles": 1307116
+    },
+    {
+      "position": 3,
+      "best": 2291,
+      "depth": 0,
+      "nodes": 2516,
+      "cacheHits": 0,
+      "cycles": 1657192
+    },
+    {
+      "position": 4,
+      "best": 2254,
+      "depth": 0,
+      "nodes": 1500,
+      "cacheHits": 0,
+      "cycles": 1175160
+    },
+    {
+      "position": 5,
+      "best": 2358,
+      "depth": 0,
+      "nodes": 2033,
+      "cacheHits": 0,
+      "cycles": 1351784
+    },
+    {
+      "position": 6,
+      "best": 2398,
+      "depth": 0,
+      "nodes": 1359,
+      "cacheHits": 0,
+      "cycles": 1071384
+    },
+    {
+      "position": 7,
+      "best": 2406,
+      "depth": 0,
+      "nodes": 1934,
+      "cacheHits": 0,
+      "cycles": 1301184
+    },
+    {
+      "position": 8,
+      "best": 1828,
+      "depth": 0,
+      "nodes": 1619,
+      "cacheHits": 0,
+      "cycles": 1282568
+    },
+    {
+      "position": 9,
+      "best": 1884,
+      "depth": 0,
+      "nodes": 2247,
+      "cacheHits": 0,
+      "cycles": 1505720
+    },
+    {
+      "position": 10,
+      "best": 2348,
+      "depth": 0,
+      "nodes": 1525,
+      "cacheHits": 0,
+      "cycles": 1467324
+    },
+    {
+      "position": 11,
+      "best": 1374,
+      "depth": 0,
+      "nodes": 2194,
+      "cacheHits": 0,
+      "cycles": 1620144
+    }
+  ]
+}

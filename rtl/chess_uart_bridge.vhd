@@ -50,7 +50,7 @@ architecture rtl of chess_uart_bridge is
     return v;
   end;
 begin
-  engine : entity work.chess_engine generic map(CLOCK_DIVIDE=>CHESS_DIVIDE)
+  engine : entity work.chess_engine generic map(CLOCK_DIVIDE=>CHESS_DIVIDE,CLOCK_HZ=>CLOCK_HZ)
     port map(clk=>clk, reset=>reset, rx_we=>engine_we,
       rx_address=>engine_rx_address, rx_data=>engine_rx_data,
       command=>engine_command, request_length=>length_i,

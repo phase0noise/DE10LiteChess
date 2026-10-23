@@ -23,6 +23,13 @@ try {
     $manifest = [ordered]@{
         target = 'DE10-Lite / 10M50DAF484C7G'
         bridge = 'Raspberry Pi Pico W / GP0 TX / GP1 RX / 115200 8N1'
+        engine = [ordered]@{
+            protocol = 4
+            maxNormalDepth = 6
+            defaultTargetDepth = 5
+            defaultThinkSeconds = 10
+            positionCacheEntries = 4096
+        }
         ssid = 'FPGA-Chess'
         url = 'http://192.168.4.1/'
         ipConfiguration = 'Arduino-Pico library default, same as oscilloscope reference; USB serial prints the runtime address'

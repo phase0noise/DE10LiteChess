@@ -25,13 +25,13 @@
         <div class="connection-row"><span id="connection" class="connection"><i></i>Connecting to FPGA</span><button id="connect" class="text-button">Reconnect</button></div>
         <h2 id="status" aria-live="polite">Setting up the board…</h2>
         <p id="message" class="message" role="status">The Pico W links your browser to the chess engine.</p>
-        <div class="settings-row"><label for="side">Play as<select id="side"><option value="0">White</option><option value="1">Black</option></select></label><label for="depth">Lookahead<select id="depth"><option value="0">Spatial</option><option value="2">2 ply</option><option value="3" selected>3 ply</option></select></label></div>
+        <div class="settings-row"><label for="side">Play as<select id="side"><option value="0">White</option><option value="1">Black</option></select></label><label for="depth">Lookahead<select id="depth"><option value="0">Spatial</option><option value="2">2 ply</option><option value="3">3 ply</option><option value="4">4 ply</option><option value="5" selected>5 ply</option><option value="6">6 ply</option></select></label><label for="time" class="time-setting">Think time<select id="time"><option value="3">3 seconds</option><option value="10" selected>10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option></select></label></div>
         <button id="new-game" class="primary-button">New game <span aria-hidden="true">↗</span></button>
         <div class="actions"><button id="undo">Undo turn</button><button id="resume">Play FPGA turn</button><button id="stop" hidden>Stop thinking</button></div>
         <button id="claim" class="text-button" hidden>Claim draw</button>
       </section>
       <section class="moves-card"><div class="section-heading"><h2>The game so far</h2><button id="download" class="text-button">Save PGN ↓</button></div><div id="moves" class="moves" aria-label="Move history"><p class="empty-moves">Every game starts with a possibility.</p></div></section>
-      <section class="engine-card"><p class="eyebrow">ON THE OTHER SIDE OF THE BOARD</p><h2>Moves made in silicon.</h2><p>The FPGA generates legal moves and chooses its reply. Pico W carries the conversation.</p><div class="metrics"><div><strong id="decision">—</strong><span>decision time</span></div><div><strong id="nodes">—</strong><span>search nodes</span></div></div></section>
+      <section class="engine-card"><p class="eyebrow">ON THE OTHER SIDE OF THE BOARD</p><h2>Moves made in silicon.</h2><p>The FPGA generates legal moves and chooses its reply. Pico W carries the conversation.</p><div class="metrics"><div><strong id="decision">—</strong><span>decision time</span></div><div><strong id="nodes">—</strong><span>search nodes</span></div><div><strong id="search-depth">—</strong><span>completed depth</span></div><div><strong id="cache-hits">—</strong><span>positions reused</span></div></div></section>
       <p class="offline-note">Your board, your Wi-Fi. No internet needed.</p>
     </aside>
   </main>

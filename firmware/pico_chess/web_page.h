@@ -14,6 +14,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
 .header-actions{display:flex;align-items:center;gap:20px}
 .theme-toggle{border:1px solid var(--line);border-radius:20px;background:var(--panel);color:var(--ink);padding:8px 12px;font-size:11px;white-space:nowrap}
 .theme-toggle:hover{background:var(--subtle)}
+.time-setting{grid-column:1 / -1}
 [data-theme] .status-card,[data-theme] .moves-card{background:var(--panel)}
 [data-theme] select{background:var(--input)}
 [data-theme] .avatar{background:var(--avatar);color:var(--accent-text)}
@@ -57,13 +58,13 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
         <div class="connection-row"><span id="connection" class="connection"><i></i>Connecting to FPGA</span><button id="connect" class="text-button">Reconnect</button></div>
         <h2 id="status" aria-live="polite">Setting up the board…</h2>
         <p id="message" class="message" role="status">The Pico W links your browser to the chess engine.</p>
-        <div class="settings-row"><label for="side">Play as<select id="side"><option value="0">White</option><option value="1">Black</option></select></label><label for="depth">Lookahead<select id="depth"><option value="0">Spatial</option><option value="2">2 ply</option><option value="3" selected>3 ply</option></select></label></div>
+        <div class="settings-row"><label for="side">Play as<select id="side"><option value="0">White</option><option value="1">Black</option></select></label><label for="depth">Lookahead<select id="depth"><option value="0">Spatial</option><option value="2">2 ply</option><option value="3">3 ply</option><option value="4">4 ply</option><option value="5" selected>5 ply</option><option value="6">6 ply</option></select></label><label for="time" class="time-setting">Think time<select id="time"><option value="3">3 seconds</option><option value="10" selected>10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option></select></label></div>
         <button id="new-game" class="primary-button">New game <span aria-hidden="true">↗</span></button>
         <div class="actions"><button id="undo">Undo turn</button><button id="resume">Play FPGA turn</button><button id="stop" hidden>Stop thinking</button></div>
         <button id="claim" class="text-button" hidden>Claim draw</button>
       </section>
       <section class="moves-card"><div class="section-heading"><h2>The game so far</h2><button id="download" class="text-button">Save PGN ↓</button></div><div id="moves" class="moves" aria-label="Move history"><p class="empty-moves">Every game starts with a possibility.</p></div></section>
-      <section class="engine-card"><p class="eyebrow">ON THE OTHER SIDE OF THE BOARD</p><h2>Moves made in silicon.</h2><p>The FPGA generates legal moves and chooses its reply. Pico W carries the conversation.</p><div class="metrics"><div><strong id="decision">—</strong><span>decision time</span></div><div><strong id="nodes">—</strong><span>search nodes</span></div></div></section>
+      <section class="engine-card"><p class="eyebrow">ON THE OTHER SIDE OF THE BOARD</p><h2>Moves made in silicon.</h2><p>The FPGA generates legal moves and chooses its reply. Pico W carries the conversation.</p><div class="metrics"><div><strong id="decision">—</strong><span>decision time</span></div><div><strong id="nodes">—</strong><span>search nodes</span></div><div><strong id="search-depth">—</strong><span>completed depth</span></div><div><strong id="cache-hits">—</strong><span>positions reused</span></div></div></section>
       <p class="offline-note">Your board, your Wi-Fi. No internet needed.</p>
     </aside>
   </main>
@@ -328,18 +329,23 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     async status() {
       const a=await this.command(0);
       if(a.length!==32||String.fromCharCode(...a.slice(0,4))!=='SCF1'||a[15]<3) throw Error('Program the DE10-Lite chess image first.');
-      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),cycles:u32(a,16),generation:u32(a,20),version:a[15]};
+      this.version=a[15];
+      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),cycles:u32(a,16),generation:u32(a,20),version:a[15],searchDepth:a[15]>=4?a[28]:0,completedDepth:a[15]>=4?a[29]:0};
     }
-    async setDepth(depth) {
-      if(![0,2,3].includes(depth)) throw Error('Unsupported search depth.');
+    async setDepth(depth,timeSeconds=10) {
+      if(![0,2,3,4,5,6].includes(depth)) throw Error('Unsupported search depth.');
+      if(!Number.isInteger(timeSeconds)||timeSeconds<1||timeSeconds>60) throw Error('Think time must be 1 to 60 seconds.');
+      if(this.version===undefined) await this.status();
+      if(depth>3&&this.version<4) throw Error('Load the expanded DE10-Lite FPGA image to use deeper search.');
       const policy=await this.command(12,[0]);
       if(policy.length!==64) throw Error('Invalid policy page.');
       policy[10]=depth;
+      if(this.version>=4) policy[40]=timeSeconds;
       await this.command(13,[0,...policy]);
     }
-    async evaluate(game,{cancelled=()=>false,progress=()=>{},depth=3}={}) {
+    async evaluate(game,{cancelled=()=>false,progress=()=>{},depth=5,timeSeconds=10}={}) {
       const position=game.position,expected=position.positionBytes(),legal=position.legalMoves();
-      await this.command(3);await this.setDepth(depth);await this.command(1,expected);
+      await this.command(3);await this.setDepth(depth,timeSeconds);await this.command(1,expected);
       const recent=game.history.slice(-8).reverse().map(h=>h.move);
       await this.command(17,[recent.length,...recent.flatMap(m=>[m>>8,m&255])]);
       if(cancelled()) throw Error('Stopped.');
@@ -367,13 +373,15 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
         if(!legal.length) return {move:null,cycles:status.cycles,nodes:0};
         if(!actual.includes(status.move)) throw Error('FPGA selected a move absent from its legal set.');
         const telemetry=await this.command(18);
-        if(telemetry.length!==10) throw Error('Invalid FPGA search telemetry.');
+        if(![10,20].includes(telemetry.length)) throw Error('Invalid FPGA search telemetry.');
         if(cancelled()) throw Error('Stopped.');
         const g=status.generation,m=status.move;
         await this.command(11,[g>>>24,(g>>>16)&255,(g>>>8)&255,g&255,m>>8,m&255]);
         const result=position.clone().make(m).positionBytes();
         if(!same(await this.command(5),result)) throw Error('FPGA move commit did not match the expected board. Reconnect to retry.');
-        return {move:m,cycles:status.cycles,nodes:u32(telemetry,0)};
+        return {move:m,cycles:status.cycles,nodes:u32(telemetry,0),depth:telemetry.length===20?telemetry[10]:telemetry[8],
+          targetDepth:telemetry[8],cacheHits:telemetry.length===20?u32(telemetry,12):0,
+          cacheStores:telemetry.length===20?u32(telemetry,16):0,budgetExpired:telemetry.length===20&&!!(telemetry[11]&1)};
       } catch(error) {
         try {await this.command(3);} catch(_) {}
         throw error;
@@ -402,7 +410,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     try {localStorage.setItem('fpga-chess-theme',dark?'dark':'light');} catch(_) {}
   }
   function save() {
-    try{localStorage.setItem('fpga-chess-game',JSON.stringify({moves:game.history.map(h=>h.move),human,depth:Number($('depth').value),claimed}));}catch(_){}
+    try{localStorage.setItem('fpga-chess-game',JSON.stringify({moves:game.history.map(h=>h.move),human,depth:Number($('depth').value),timeSeconds:Number($('time').value),claimed}));}catch(_){}
   }
   function restore() {
     try {
@@ -410,7 +418,8 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
       if(saved&&Array.isArray(saved.moves)&&saved.moves.length<2000) {
         for(const move of saved.moves) game.push(move);
         human=saved.human===1?1:0;claimed=!!saved.claimed&&game.canClaim();
-        if([0,2,3].includes(saved.depth)) $('depth').value=saved.depth;
+        if([0,2,3,4,5,6].includes(saved.depth)) $('depth').value=saved.depth;
+        if([3,10,20,30].includes(saved.timeSeconds)) $('time').value=saved.timeSeconds;
       }
     } catch(_) {game.reset();}
     $('side').value=human;flipped=!!human;
@@ -443,7 +452,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     $('engine-color').textContent=human?'WHITE':'BLACK';
     $('turn-label').textContent=outcome?'Game finished':busy?'Thinking…':p.turn===human?'Your move':'FPGA to move';
     if(!busy) $('status').textContent=outcome?outcome.text:!connected?'Connect to your FPGA':p.turn===human?(p.inCheck()?'Your king is in check.':'Your move.'):'The fabric is ready.';
-    for(const id of ['new-game','side','depth','connect']) $(id).disabled=busy;
+    for(const id of ['new-game','side','depth','time','connect']) $(id).disabled=busy;
     $('undo').disabled=busy||!game.history.length;
     $('resume').hidden=busy||!!outcome||p.turn===human;
     $('resume').disabled=!connected;
@@ -537,11 +546,14 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     if(busy||!connected||game.position.turn===human||game.outcome()||claimed) return;
     busy=true;cancel=false;selected=null;render();$('status').textContent='The fabric is thinking…';message('Finding a reply on the FPGA.');
     try {
-      const result=await fpga.evaluate(game,{depth:Number($('depth').value),cancelled:()=>cancel});
+      const result=await fpga.evaluate(game,{depth:Number($('depth').value),timeSeconds:Number($('time').value),cancelled:()=>cancel,
+        progress:status=>{if(status.searchDepth>=2) $('status').textContent=`Searching ${status.searchDepth} ply…`;}});
       if(result.move!==null) game.push(result.move);
       $('decision').textContent=`${(result.cycles/50000000).toFixed(2)} s`;
-      $('nodes').textContent=result.nodes.toLocaleString();save();
-      message(game.outcome()?.text||'Your turn. Take your time.');
+      $('nodes').textContent=result.nodes.toLocaleString();
+      $('search-depth').textContent=result.depth?`${result.depth}${result.depth!==result.targetDepth?' / '+result.targetDepth:''} ply`:'—';
+      $('cache-hits').textContent=(result.cacheHits||0).toLocaleString();save();
+      message(game.outcome()?.text||(result.budgetExpired?`Your turn. Completed ${result.depth} ply in the time available.`:'Your turn. Take your time.'));
     } catch(error) {
       if(cancel) message('Search stopped. Play the FPGA turn when you are ready.');
       else {message(error.message,true);connection(false);}
@@ -581,6 +593,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
   };
   $('side').onchange=()=>message('Your color will apply when you start a new game.');
   $('depth').onchange=save;
+  $('time').onchange=save;
   $('flip').onclick=()=>{cancelDrag();flipped=!flipped;render();};
   $('undo').onclick=()=>{cancelDrag();game.undoTurn(human);selected=null;claimed=false;save();render();message('Previous turn restored.');};
   $('resume').onclick=engineTurn;

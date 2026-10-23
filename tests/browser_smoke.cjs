@@ -6,12 +6,12 @@ const {spawn}=require('node:child_process');
 const {Position,Game,uci}=require('../web/chess.js');
 const {hex,unhex}=require('../web/fpga.js');
 const root=path.resolve(__dirname,'..');
-let p=new Position(),done=false,generation=1,selected=0;
+let p=new Position(),done=false,generation=1,selected=0,requestedDepth=5;
 function respondCommand(bytes){
   const sub=bytes[0];
   switch(sub){
     case 0:{
-      const a=new Uint8Array(32);a.set([83,67,70,49]);a[5]=done?1:0;a[7]=p.turn;a[15]=3;
+      const a=new Uint8Array(32);a.set([83,67,70,49]);a[5]=done?1:0;a[7]=p.turn;a[15]=4;a[28]=requestedDepth;a[29]=done?requestedDepth:0;
       const moves=p.legalMoves();selected=moves.find(m=>uci(m)==='e7e5')??moves[0];
       a[8]=moves.length>>8;a[9]=moves.length&255;a[10]=selected>>8;a[11]=selected&255;
       a[23]=generation;return a;
@@ -23,7 +23,8 @@ function respondCommand(bytes){
     case 7:{const a=new Uint8Array(64),moves=p.legalMoves();for(let i=0;i<16;i++){const m=moves[bytes[1]*16+i]||0;a[i*4]=m>>8;a[i*4+1]=m&255;}return a;}
     case 11:p.make(selected);return [0];
     case 12:return new Uint8Array(64);
-    case 18:return new Uint8Array(10);
+    case 13:requestedDepth=bytes[12];return [0];
+    case 18:{const a=new Uint8Array(20);a[8]=requestedDepth;a[9]=4;a[10]=requestedDepth;a[11]=2;a[15]=7;return a;}
     default:return [0];
   }
 }
@@ -81,6 +82,8 @@ async function run(){
     console.log('Browser connected to the simulated endpoint.');
     assert.equal(await evaluate('document.querySelectorAll(".square").length'),64);
     assert.equal(await evaluate('document.querySelectorAll(".piece").length'),32);
+    assert.equal(await evaluate('document.querySelector("#depth").value'),'5');
+    assert.equal(await evaluate('document.querySelector("#time").value'),'10');
     assert.equal(await evaluate('document.documentElement.dataset.theme'),'dark');
     assert.equal(await evaluate('getComputedStyle(document.documentElement).colorScheme'),'dark');
     await evaluate('document.querySelector("#theme").click()');
@@ -94,6 +97,8 @@ async function run(){
     await evaluate('document.querySelector(\'[data-square="28"]\').click()');
     await waitForReply();
     assert.equal(await evaluate('document.querySelector("#turn-label").textContent'),'Your move');
+    assert.equal(await evaluate('document.querySelector("#search-depth").textContent'),'5 ply');
+    assert.equal(await evaluate('document.querySelector("#cache-hits").textContent'),'7');
     fs.writeFileSync(path.join(root,'.cache/browser-desktop.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));
     await evaluate('document.querySelector("#undo").click()');assert.equal(await evaluate('document.querySelectorAll(".move-row").length'),0);
     await dragPiece(12,36); // e2-e5 is illegal.
