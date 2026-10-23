@@ -24,7 +24,8 @@ try {
         target = 'DE10-Lite / 10M50DAF484C7G'
         bridge = 'Raspberry Pi Pico W / GP0 TX / GP1 RX / 115200 8N1'
         ssid = 'FPGA-Chess'
-        url = 'http://192.168.42.1'
+        url = 'http://192.168.4.1/'
+        ipConfiguration = 'Arduino-Pico library default, same as oscilloscope reference; USB serial prints the runtime address'
         physicalBoardAcceptance = 'Not performed; see docs/VALIDATION.md'
         sha256 = $hashes
     }

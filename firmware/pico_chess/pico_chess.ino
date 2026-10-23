@@ -7,7 +7,7 @@
 #error "Select Raspberry Pi Pico W, as in the oscilloscope example."
 #endif
 
-// Same AP address, GPIOs and UART rate as the oscilloscope example.
+// Use the oscilloscope reference's default AP setup, GPIOs and UART rate.
 constexpr char WIFI_NAME[] = "FPGA-Chess";
 constexpr char WIFI_PASSWORD[] = "fpgachess";
 constexpr uint32_t UART_BAUD=115200;
@@ -173,10 +173,8 @@ void loop() {
   if(!wifiReady && int32_t(millis()-nextWifi)>=0) {
     nextWifi=millis()+5000;
     WiFi.setTimeout(1000);
-    WiFi.mode(WIFI_AP);
-    WiFi.softAPConfig(IPAddress(192,168,42,1),IPAddress(192,168,42,1),IPAddress(255,255,255,0));
     if(WiFi.softAP(WIFI_NAME,WIFI_PASSWORD)) {
-      wifiReady=true;webServer.begin();
+      wifiReady=true;webServer.begin();webServer.setNoDelay(true);
       Serial.print("Wi-Fi: ");Serial.println(WIFI_NAME);
       Serial.print("Open http://");Serial.println(WiFi.softAPIP());
       sequence^=micros()<<8;

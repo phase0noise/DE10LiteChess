@@ -29,8 +29,8 @@ history, draw rules, and an independent check of the FPGA's complete legal set.
    These are **3.3 V logic** signals. Power each board through its normal USB
    supply and share ground. GPIO labels refer to the DE10-Lite GPIO header.
 4. Connect your phone or computer to **`FPGA-Chess`**, password **`fpgachess`**.
-5. Open **<http://192.168.42.1>**. Stay connected when your phone reports that
-   this Wi-Fi network has no internet access.
+5. Open **<http://192.168.4.1/>** with the included Pico W build. USB serial at
+   **115200 baud** prints the actual address as `Open http://...` at startup.
 6. Wait for **FPGA connected**, select your color, and press **New game**.
    Choose a piece and destination. Black starts with the FPGA playing white.
 
@@ -39,6 +39,14 @@ after reload, PGN download, checkmate/stalemate, automatic draw rules, and
 threefold/fifty-move draw claims. Change lookahead between Spatial, 2 ply, and
 3 ply. **Play FPGA turn** resumes after a stopped search or a reconnect.
 Saved history is local to your browser; use one controlling browser tab.
+
+Wi-Fi startup matches the oscilloscope reference: `WiFi.softAP(...)` uses the
+Pico library's default AP configuration. The sketch does not force the mode or
+IP address. The installed Arduino-Pico 6.0.0 library defaults to `192.168.4.1`;
+another core version may choose a different address. The phone's Router/Gateway
+address is also the Pico's address. The hotspot serves the local game without
+internet access, so a phone may still ask whether to stay on an offline network.
+Matching the reference's IP does not guarantee that this phone prompt disappears.
 
 Dark mode is the default; the header's light/dark toggle remembers your choice.
 Drag pieces with a mouse or finger, or tap a piece and its destination. Illegal

@@ -54,6 +54,12 @@ The Pico W firmware compiles with Arduino-Pico **6.0.0**, **133 MHz**, at about
 **22% flash** and **29% RAM**. The generated header contains the entire webpage
 and artwork. There are no CDN or internet requests during play.
 
+The Wi-Fi startup now matches the oscilloscope reference's `WiFi.softAP(...)`
+call, without forcing AP mode or a static address. The installed core's default
+AP address is `192.168.4.1`, also printed on USB serial. Removing the phone's
+offline-network confirmation has not been established on physical hardware;
+the reference has no special internet-validation handling either.
+
 `output_files/build_manifest.json` records SHA-256 fingerprints for all release
 sources and all three programming images (SOF, POF, and UF2). The portable ZIP
 contains those sources and images; compiler databases, temporary files and test
@@ -68,7 +74,8 @@ Compilation, simulations, and browser tests are recorded separately above.
 For the first hardware check:
 
 1. Load both matching images and connect the three wires listed in README.md.
-2. Join **FPGA-Chess** and open **http://192.168.42.1**. Confirm **FPGA connected**.
+2. Join **FPGA-Chess** and open **http://192.168.4.1/**, or the address printed
+   on USB serial. Confirm **FPGA connected**.
 3. Play as white, make a move and wait for the FPGA reply. The browser compares
    the complete legal set and both position readbacks before accepting the reply.
 4. Start a game as black and verify that the FPGA plays white first. Check
