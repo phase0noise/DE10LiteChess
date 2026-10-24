@@ -1,0 +1,43 @@
+{
+  "positions": 2,
+  "candidateScores": 18,
+  "fastCycles": 3582792,
+  "originalCycles": 4503888,
+  "reductionPercent": 20.45,
+  "fast": [
+    {
+      "position": 0,
+      "best": 2915,
+      "depth": 3,
+      "nodes": 1243,
+      "cacheHits": 469,
+      "cycles": 3115576
+    },
+    {
+      "position": 1,
+      "best": 24112,
+      "depth": 3,
+      "nodes": 193,
+      "cacheHits": 62,
+      "cycles": 467216
+    }
+  ],
+  "original": [
+    {
+      "position": 0,
+      "best": 2915,
+      "depth": 3,
+      "nodes": 1243,
+      "cacheHits": 469,
+      "cycles": 3931288
+    },
+    {
+      "position": 1,
+      "best": 24112,
+      "depth": 3,
+      "nodes": 193,
+      "cacheHits": 62,
+      "cycles": 572600
+    }
+  ]
+}

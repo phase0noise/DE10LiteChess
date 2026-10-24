@@ -36,6 +36,13 @@ try {
     }
     & $Python tests/check_cache.py .cache/cache-1.log .cache/cache-0.log
     if ($LASTEXITCODE -ne 0) { throw 'Cache comparison failed.' }
+    foreach ($fast in @('true','false')) {
+        $log = ".cache/destinations-$fast.log"
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/cache_vectors.txt' -gSEARCH_DEPTH=3 -gCLOCK_DIVIDE=4 -gDETERMINISTIC=true "-gFAST_DESTINATIONS=$fast" --assert-level=error *> $log
+        if ($LASTEXITCODE -ne 0) { Get-Content $log -Tail 20; throw 'Destination scan regression failed.' }
+    }
+    & $Python tests/check_destinations.py .cache/destinations-true.log .cache/destinations-false.log
+    if ($LASTEXITCODE -ne 0) { throw 'Destination scan comparison failed.' }
     $tactics[8] | Set-Content .cache/budget_vectors.txt
     foreach ($budgetClock in @(10000,400000)) {
         & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/budget_vectors.txt' -gSEARCH_DEPTH=6 -gCLOCK_DIVIDE=4 -gBUDGET_SECONDS=1 "-gTEST_CLOCK_HZ=$budgetClock" -gEXPECT_TIMEOUT=true --assert-level=error

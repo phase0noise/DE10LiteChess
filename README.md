@@ -10,6 +10,63 @@ search with capture extensions, and chooses the computer's move. The Pico W host
 and serves the complete page from flash. The browser handles your moves,
 history, draw rules, and an independent check of the FPGA's complete legal set.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Phone["Phone / browser<br/>Board, game modes, clock, history"]
+    Pico["Pico W<br/>Wi-Fi access point + HTTP server<br/>CRC-protected UART bridge"]
+    API["FPGA command endpoint<br/>Position, policy, telemetry<br/>Generation-guarded move commit"]
+    Search["Search controller<br/>Iterative deepening + alpha-beta<br/>Capture extensions + evaluation"]
+    Spatial["64-square spatial fabric<br/>Concurrent attack and reach maps<br/>King-safety filter"]
+    Field["Recurrent field<br/>64 signed cell values<br/>Shared update arithmetic"]
+    RAM[("M9K block RAM<br/>Position cache, move queues<br/>Board stack, history, results")]
+    Phone <-->|"Local Wi-Fi / HTTP"| Pico
+    Pico <-->|"115200 baud · 3 wires"| API
+    subgraph MAX10["DE10-Lite · MAX 10 FPGA · 50 MHz"]
+        API <--> Search
+        Search <--> Spatial
+        Search <--> RAM
+        Field --> Search
+        Spatial --> Field
+    end
+```
+
+**Your phone runs the game; the FPGA chooses computer moves.** The browser
+keeps the board, rules, move history, captures and clocks. The Pico W serves
+that page from flash and translates HTTP requests into UART packets. It does
+not evaluate chess positions. FPGA vs FPGA sends both colors to the same
+hardware engine, one turn at a time.
+
+Inside the FPGA, the spatial fabric computes attack and reach maps through
+parallel connections between squares. A shared controller uses those maps to
+generate moves, reject moves that expose its king, and search replies. The
+search walks one speculative board at a time; block RAM stores the board
+stack, ordered moves and previously visited positions. The recurrent field
+adds a bounded spatial preference to the root move scores. Its 64 cell values
+are updated by shared arithmetic; there are not 64 separate search engines.
+
+A computer turn follows this path:
+
+1. Load the position, search settings and recent moves onto the FPGA.
+2. Settle the recurrent field and generate legal root moves.
+3. Search progressively deeper, reusing cached positions and pruning branches
+   with alpha-beta. The newest **complete** iteration supplies the result.
+4. Return candidates, scores, counters and a field snapshot to the browser.
+5. Compare the complete FPGA legal set with the browser's independent rules,
+   commit the FPGA-selected move with its position generation, and check the
+   resulting board before showing it.
+
+The board clock is 50 MHz. The search controller advances once every four
+clocks to accommodate RAM and combinational paths; the spatial wiring works
+in parallel between those steps. The destination scanner uses the reach map
+to skip impossible squares. Pawn pushes and castling are explicitly included
+before the ordinary legality checks. This reduces work per searched node
+without increasing the requested depth or removing moves.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a source map, a worked
+example, and the next engine improvements worth exploring.
+
 ## Play
 
 1. Load **`output_files/de10_chess.sof`** onto the DE10-Lite with Quartus
@@ -44,6 +101,37 @@ iteration can exceed a very short budget. **Play FPGA turn** resumes after a
 stopped search or a reconnect.
 Saved history is local to your browser; use one controlling browser tab.
 
+### Game modes and mobile controls
+
+| Mode | How it plays |
+| --- | --- |
+| You vs FPGA | Choose White or Black and play the hardware engine. |
+| FPGA vs FPGA | Watch the same FPGA play both sides; pause and resume at any time. |
+| Pass & play | Two people share the board. Moves work even if the FPGA is disconnected. |
+| Speed round | Each human turn gets 5, 10, 15 or 30 seconds. At zero, the FPGA chooses a **Spatial** move for you, then searches its own reply at the selected depth. |
+
+Choose a mode and press **New game**. Mode, color and move timer changes apply
+to a new game; depth and think budget apply to the next FPGA turn. A speed
+clock starts after the FPGA's reply is verified, and keeps running while you
+choose a promotion. A timed-out promotion is canceled before the FPGA takes
+over. Clock expiry is checked when the page can run again after background
+suspension; keep the controlling page open for timely moves. Speed and self-play
+games restore **paused** after a reload. **Undo move** removes one ply in
+pass-and-play/self-play; speed-round undo pauses the game.
+
+**Off the board** shows the pieces actually captured by each color, with
+traditional values: pawn **1**, knight **3**, bishop **3**, rook **5**, queen
+**9**. Each tray totals capture points. The material balance counts the pieces
+currently on the board, so promotions affect it correctly. En passant, capture
+promotions, undo and reload use the recorded game positions.
+
+The engine console below the game shows measured decision time, nodes, depth,
+node rate, alpha-beta cutoffs, matching cache probes, cache writes and legal
+root moves. Its trace uses UART samples, and its heatmap is the **last completed
+recurrent-field snapshot**, with White at the bottom. Candidate scores and the
+chosen move's seven components come from the FPGA. Preference scores are
+relative move rankings, not win probabilities or a calibrated evaluation bar.
+
 Wi-Fi startup matches the oscilloscope reference: `WiFi.softAP(...)` uses the
 Pico library's default AP configuration. The sketch does not force the mode or
 IP address. The installed Arduino-Pico 6.0.0 library defaults to `192.168.4.1`;
@@ -60,14 +148,20 @@ swipe outside the board to scroll the page.
 
 The expanded engine uses a **4,096-entry position cache in M9K block RAM**,
 ordered alpha-beta search, iterative deepening, and up to four capture/promotion
-extension plies with check evasions. Evaluation blends middlegame and endgame
+extension plies with check evasions. The reach-map destination scanner uses
+**20.45% fewer decision cycles** than the original scanner on the deterministic
+fork/promotion comparison, with identical moves, candidate scores and nodes.
+That is a measured improvement on two fixtures, not a general strength rating.
+Evaluation blends middlegame and endgame
 piece placement and includes passed/isolated/doubled pawns, bishop pairs, rook
-files, and king shelter. The fitted design uses **29,371 / 49,760 logic elements
+files, and king shelter. The fitted design uses **29,399 / 49,760 logic elements
 (59%)** and **917,128 / 1,677,312 memory bits (55%)**, occupying **125 / 182 M9K
 blocks (69%)**, with passing 50 MHz timing.
-On the independent mate-in-three regression set, it finds a winning first move
+The October 22 engine's independent mate-in-three regression found a winning first move
 in **12/12 positions**, compared with **2/12** for the previous engine. This is
 a focused tactical result, not an Elo estimate.
+The October 24 update checks legality, tactics, cache equivalence, deadlines and
+destination-scan equivalence; it does not rerun that longer strength benchmark.
 See [docs/ENGINE.md](docs/ENGINE.md) for the search design and controls. Load
 **both new FPGA and Pico images** for the expanded controls.
 

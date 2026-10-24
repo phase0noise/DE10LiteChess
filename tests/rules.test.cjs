@@ -37,3 +37,18 @@ assert.notEqual(ep.key(),new Position(ep.fen().replace(' d6 ',' - ')).key());
 const pinnedEp=new Position('4r1k1/8/8/3pP3/8/8/8/4K3 w - d6 0 1');
 assert.equal(pinnedEp.key(),new Position(pinnedEp.fen().replace(' d6 ',' - ')).key());
 console.log('Rules, perft, repetition, en passant keys and undo passed.');
+const captureGame=new Game();
+function play(g,text){const move=g.position.legalMoves().find(m=>uci(m)===text);assert.notEqual(move,undefined,text);g.push(move);}
+for(const text of ['e2e4','d7d5','e4d5','d8d5','b1c3','d5a5','g1f3']) play(captureGame,text);
+assert.deepEqual(captureGame.captures().map(c=>c.points),[1,1]);
+captureGame.undoPly();assert.equal(captureGame.history.length,6);assert.equal(captureGame.position.turn,0);
+captureGame.undoTurn(0);assert.equal(captureGame.history.length,4);assert.deepEqual(captureGame.captures().map(c=>c.points),[1,1]);
+const epGame=new Game();
+for(const text of ['e2e4','a7a6','e4e5','d7d5','e5d6']) play(epGame,text);
+assert.deepEqual(epGame.captures(),[{pieces:[9],points:1},{pieces:[],points:0}]);
+epGame.undoPly();assert.equal(epGame.captures()[0].points,0);
+const promotionGame=new Game();
+for(const text of ['a2a4','h7h5','a4a5','h5h4','a5a6','h4h3','a6b7','h3g2','b7a8q']) play(promotionGame,text);
+assert.deepEqual(promotionGame.captures().map(c=>c.points),[6,1],'Promotion must count the captured rook, not the promoted pawn');
+promotionGame.undoPly();assert.deepEqual(promotionGame.captures().map(c=>c.points),[1,1]);
+console.log('Capture values, en passant, capture promotion and single-ply undo passed.');

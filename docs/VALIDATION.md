@@ -1,4 +1,4 @@
-# Port and expanded-engine validation — October 22, 2026
+# Port and engine-console validation — October 24, 2026
 
 The project includes its own FPGA sources, Pico firmware, artwork, web assets,
 and test/build scripts. Quartus and Arduino builds run from this project folder.
@@ -6,6 +6,30 @@ and test/build scripts. Quartus and Arduino builds run from this project folder.
 that all firmware/browser assets are present. It also checks the staged ZIP.
 
 ## Functional results
+
+The October 24 run passes `tools/verify.ps1 -Browser`, the Quartus timing gate
+and the Pico build. The longer twelve-position strength benchmark below is
+retained as an explicitly dated October 22 measurement.
+
+- **Destination scan comparison:** cached three-ply searches with random root
+  preferences disabled preserve all **18** candidate scores, both selected
+  moves, node counts and cache-match counts. The reach-map scanner takes
+  **3,582,792** cycles versus **4,503,888** for the original walk, **20.45% fewer**
+  on the fork/promotion fixtures. Both use the same evaluator, depth and cache.
+  [destination-results.json](destination-results.json) records the measurements.
+- **October 24 browser checks:** desktop and 390 px touch interaction, themes,
+  dragging, promotion/cancellation, captured values, material balance, engine
+  candidates, field snapshot and score breakdown pass. Pass-and-play moves
+  both colors with an explicitly disconnected mock endpoint and does not search.
+  Self-play alternates sides, pauses between turns, cancels an active search,
+  restores paused and undoes one ply. A nearly expired restored speed clock
+  invokes Spatial (depth 0), then the opponent's selected depth 3. Its assisted
+  move marker persists, and the paused clock does not decrease. Node checks
+  also cover en passant and capture-promotion accounting and undo.
+  Final browser checks also cover timeout during a promotion dialog and a fresh
+  opponent reply after stopping a normal search and undoing. The final native
+  byte decoder passes UART and 19 special-rule positions, including every
+  explanation-record boundary.
 
 - Browser rules match **147 independently generated python-chess positions**:
   complete legal sets, SAN, every resulting FEN, position bytes, check status,
@@ -21,7 +45,8 @@ that all firmware/browser assets are present. It also checks the staged ZIP.
   Expected best moves also check committed board/rights/EP/turn and stale commit
   rejection. These tests also pass on the expanded engine with its 4,096-entry
   cache and quiescence enabled.
-- **12 independently proven mate-in-three positions** pass with five normal
+- **October 22 strength baseline, not rerun for this release:** 12 independently
+  proven mate-in-three positions pass with five normal
   plies: the expanded engine selects a winning first move on **12/12**, versus
   **2/12** for the previous three-ply engine at commit `2963b12`. Each position
   is proven unwinnable in three plies and forceable in five by enumerating every
@@ -32,10 +57,11 @@ that all firmware/browser assets are present. It also checks the staged ZIP.
   RTL hashes were checked against that commit. Detailed choices, positions,
   nodes and cycles are in [strength-results.json](strength-results.json).
   This focused tactical comparison does not establish an Elo rating.
-- **Cache enabled/disabled comparison** preserves all 18 root candidate scores
+- **October 22 cache enabled/disabled comparison** preserves all 18 root candidate scores
   and selected moves across fork and promotion positions, with random root
   preferences disabled. The cached searches use 4,503,888 decision cycles versus
   5,766,764 without the cache, about 22% fewer cycles on these two fixtures.
+  The October 24 cache on/off comparison also passes with the new scanner.
 - **Budget expiry** passes before the first iteration finishes and during the
   next iteration. Both runs retain the complete seven-move promotion candidate
   set from depth 2, retain matching explanations, preserve the factual position,
@@ -85,11 +111,11 @@ unconstrained clocks/input/output ports. Asynchronous inputs are excluded only
 at the reset input and the first sampling registers; display/UART outputs have
 no synchronous external receiver.
 
-The Pico W firmware compiles with Arduino-Pico **6.0.0**, **133 MHz**, at about
-**22% flash** and **29% RAM**. The generated header contains the entire webpage
+The Pico W firmware compiles with Arduino-Pico **6.0.0**, **133 MHz**, at
+**499,620 bytes (23% flash)** and **76,408 bytes (29% RAM)**. The generated header contains the entire webpage
 and artwork. There are no CDN or internet requests during play.
 
-The expanded FPGA fits in **29,371 / 49,760 logic elements (59%)** and
+The expanded FPGA fits in **29,399 / 49,760 logic elements (59%)** and
 **917,128 / 1,677,312 memory bits (55%)**. The previous build used 19,753 logic
 elements (40%) and 46,728 memory bits (3%). The new M9K allocations include the
 position cache, move queues, history, key ROM and doubled candidate-result RAM.
@@ -123,3 +149,7 @@ For the first hardware check:
 4. Start a game as black and verify that the FPGA plays white first. Check
    undo, stop/resume, promotion when reached, and reconnect after KEY0 reset.
 5. Power cycle each board, reload the FPGA SOF, and repeat the connection check.
+6. In Speed round, let the human timer expire and confirm the Spatial move,
+   followed by the normal FPGA reply. Check pause/resume and promotion timeout.
+7. In FPGA vs FPGA, let both sides move, pause during/between searches, then
+   reload and resume. Check captures and the console on the actual phone.

@@ -189,6 +189,21 @@
       const san=this.position.san(move);
       this.history.push({move,san});this.position.make(move);this.positions.push(this.position.clone());this.keys.push(this.position.key());return san;
     }
+    undoPly() {
+      if(!this.history.length) return;
+      this.history.pop();this.positions.pop();this.keys.pop();
+      this.position=this.positions.at(-1).clone();
+    }
+    captures() {
+      const result=[{pieces:[],points:0},{pieces:[],points:0}];
+      for(let i=0;i<this.history.length;i++) {
+        const before=this.positions[i],{from,to}=decode(this.history[i].move);
+        let piece=before.board[to];
+        if(!piece&&(before.board[from]&7)===1&&from%8!==to%8) piece=before.board[to+(before.turn?8:-8)];
+        if(piece) {result[before.turn].pieces.push(piece);result[before.turn].points+=PIECE_VALUES[piece&7];}
+      }
+      return result;
+    }
     undoTurn(human) {
       if(!this.history.length) return;
       do {this.history.pop();this.positions.pop();this.keys.pop();} while(this.history.length&&this.positions.at(-1).turn!==human);
@@ -220,7 +235,8 @@
       return `[Event "DE10-Lite Chess"]\n[Site "Pico W"]\n[Result "${result}"]\n\n${rows.join(' ')} ${result}\n`;
     }
   }
-  const api={Position,Game,START,encode,decode,uci,square};
+  const PIECE_VALUES=[0,1,3,3,5,9,0];
+  const api={Position,Game,START,encode,decode,uci,square,PIECE_VALUES};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   root.ChessRules=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -9,7 +9,7 @@ entity tb_chess_engine is
     CACHE_ENABLE : natural := 1; QUIESCENCE : natural := 4; BUDGET_SECONDS : natural := 0;
     TEST_CLOCK_HZ : positive := 50000000; MAX_POLLS : positive := 20000; TRACE : boolean := false;
     CHECK_TACTICS : boolean := true; EXPECT_TIMEOUT : boolean := false;
-    DETERMINISTIC : boolean := false; FIRST_POSITION : natural := 0;
+    DETERMINISTIC : boolean := false; FAST_DESTINATIONS : boolean := true; FIRST_POSITION : natural := 0;
     POSITION_COUNT : natural := natural'high);
 end;
 architecture test of tb_chess_engine is
@@ -26,7 +26,7 @@ architecture test of tb_chess_engine is
   signal running : boolean := true;
 begin
   clk <= not clk after 10 ns when running else '0';
-  dut : entity work.chess_engine generic map(CLOCK_DIVIDE=>CLOCK_DIVIDE,TRACE_SEARCH=>TRACE,CLOCK_HZ=>TEST_CLOCK_HZ) port map(clk=>clk,reset=>reset,
+  dut : entity work.chess_engine generic map(CLOCK_DIVIDE=>CLOCK_DIVIDE,TRACE_SEARCH=>TRACE,CLOCK_HZ=>TEST_CLOCK_HZ,FAST_DESTINATIONS=>FAST_DESTINATIONS) port map(clk=>clk,reset=>reset,
     rx_we=>rx_we,rx_address=>rx_addr,rx_data=>rx_data,command=>command,
     request_length=>req_len,request_token=>token,response_done=>complete,
     response_status=>status,response_length=>resp_len,read_address=>rd_addr,

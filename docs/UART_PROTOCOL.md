@@ -116,3 +116,17 @@ Check evasions can add one further ply at the quiescence limit; the stack has
 The web client also accepts the older protocol 3 / ten-byte telemetry when
 using Spatial, 2 ply or 3 ply. It reports an explicit upgrade message if deeper
 search is requested from the old FPGA image.
+
+## Engine console
+
+The October 24 page reads the existing protocol without adding commands.
+Status polling continues around every 120 ms; command 18 is sampled around
+every 500 ms and once at completion. Candidate pages retain their signed scores.
+Before commit, the client reads command 4's 80-byte attack/field snapshot and
+the command-14 page containing the selected move. Its move/score header must
+match completed status. These reads are followed by the usual generation-guarded
+commit and board readback. Additional snapshots add UART/HTTP latency, which is
+not included in the FPGA decision-cycle counter.
+
+Explanation-page address decoding is bounded to four 18-byte records; the
+byte read latency, payload layout and protocol version remain unchanged.

@@ -7,29 +7,34 @@ const {Position,Game,uci}=require('../web/chess.js');
 const {hex,unhex}=require('../web/fpga.js');
 const root=path.resolve(__dirname,'..');
 let p=new Position(),done=false,generation=1,selected=0,requestedDepth=5;
+let endpointAvailable=true,holdSearch=false,deviceSearching=false;
+const searchDepths=[];
 function respondCommand(bytes){
   const sub=bytes[0];
   switch(sub){
     case 0:{
-      const a=new Uint8Array(32);a.set([83,67,70,49]);a[5]=done?1:0;a[7]=p.turn;a[15]=4;a[28]=requestedDepth;a[29]=done?requestedDepth:0;
+      const a=new Uint8Array(32);a.set([83,67,70,49]);a[4]=deviceSearching&&!done?1:0;a[5]=done?1:0;a[7]=p.turn;a[15]=4;a[28]=requestedDepth;a[29]=done?requestedDepth:0;
       const moves=p.legalMoves();selected=moves.find(m=>uci(m)==='e7e5')??moves[0];
       a[8]=moves.length>>8;a[9]=moves.length&255;a[10]=selected>>8;a[11]=selected&255;
       a[23]=generation;return a;
     }
     case 1:p.board=Uint8Array.from(bytes.slice(1,65));p.turn=bytes[65];p.rights=bytes[66];p.ep=bytes[67];generation++;return [0];
-    case 2:done=true;return [0];
-    case 3:done=false;return [0];
+    case 2:deviceSearching=true;done=!holdSearch;searchDepths.push(requestedDepth);return [0];
+    case 3:deviceSearching=false;done=false;return [0];
     case 5:return p.positionBytes();
     case 7:{const a=new Uint8Array(64),moves=p.legalMoves();for(let i=0;i<16;i++){const m=moves[bytes[1]*16+i]||0;a[i*4]=m>>8;a[i*4+1]=m&255;}return a;}
-    case 11:p.make(selected);return [0];
+    case 11:p.make(selected);deviceSearching=false;return [0];
+    case 4:{const a=new Uint8Array(80);for(let s=0;s<64;s++)a[s+16]=(s*5-127)&255;return a;}
     case 12:return new Uint8Array(64);
     case 13:requestedDepth=bytes[12];return [0];
     case 18:{const a=new Uint8Array(20);a[8]=requestedDepth;a[9]=4;a[10]=requestedDepth;a[11]=2;a[15]=7;return a;}
+    case 14:{const a=new Uint8Array(72),moves=p.legalMoves();for(let i=0;i<4;i++){const m=moves[bytes[1]*4+i]||0;a[i*18]=m>>8;a[i*18+1]=m&255;}return a;}
     default:return [0];
   }
 }
 const server=http.createServer((req,res)=>{
   if(req.url==='/api/command'){
+    if(!endpointAvailable){res.writeHead(504,{'Content-Type':'application/json'});res.end(JSON.stringify({error:'Simulated disconnected FPGA'}));req.resume();return;}
     let body='';req.on('data',a=>body+=a);req.on('end',()=>{try{const payload=respondCommand(unhex(body));res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:0,payload:hex(payload)}));}catch(e){res.writeHead(500);res.end(JSON.stringify({error:e.message}));}});return;
   }
   const name=req.url==='/'?'index.html':req.url.slice(1),file=path.join(root,'web',name);
@@ -56,6 +61,12 @@ async function run(){
     const call=(method,params={})=>new Promise((resolve,reject)=>{const n=++id;const timer=setTimeout(()=>{pending.delete(n);reject(Error(`Browser command timed out: ${method}`));},5000);pending.set(n,{resolve:value=>{clearTimeout(timer);resolve(value);},reject});socket.send(JSON.stringify({id:n,method,params}));});
     const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
     async function wait(expression){for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(60);}throw Error(`Browser wait timed out: ${expression}`);}
+    async function restoreGame(saved) {
+      // Install after the previous page's pagehide save, before app startup.
+      const script=await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('fpga-chess-game',${JSON.stringify(JSON.stringify(saved))})`});
+      try {await call('Page.reload');await wait('document.querySelector("#connection.online")');}
+      finally {await call('Page.removeScriptToEvaluateOnNewDocument',{identifier:script.identifier});}
+    }
     const center=s=>evaluate(`(()=>{const r=document.querySelector('[data-square="${s}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
     async function dragPiece(from,to,{touch=false,cancel=false}={}) {
       const start=typeof from==='number'?await center(from):from,end=typeof to==='number'?await center(to):to;
@@ -99,6 +110,10 @@ async function run(){
     assert.equal(await evaluate('document.querySelector("#turn-label").textContent'),'Your move');
     assert.equal(await evaluate('document.querySelector("#search-depth").textContent'),'5 ply');
     assert.equal(await evaluate('document.querySelector("#cache-hits").textContent'),'7');
+    assert.equal(await evaluate('document.querySelectorAll(".candidate-row").length'),5);
+    assert.equal(await evaluate('document.querySelectorAll(".field-cell").length'),64);
+    assert.equal(await evaluate('document.querySelectorAll(".score-parts>div").length'),7);
+    assert.equal(await evaluate('document.querySelector("#legal-count").textContent'),'20');
     fs.writeFileSync(path.join(root,'.cache/browser-desktop.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));
     await evaluate('document.querySelector("#undo").click()');assert.equal(await evaluate('document.querySelectorAll(".move-row").length'),0);
     await dragPiece(12,36); // e2-e5 is illegal.
@@ -138,8 +153,7 @@ async function run(){
     for(const text of ['a2a4','h7h5','a4a5','h5h4','a5a6','h4h3','a6b7','h3g2']) {
       const move=promotionGame.position.legalMoves().find(move=>uci(move)===text);assert.notEqual(move,undefined);promotionGame.push(move);
     }
-    await evaluate(`localStorage.setItem('fpga-chess-game',${JSON.stringify(JSON.stringify({moves:promotionGame.history.map(h=>h.move),human:0,depth:3,claimed:false}))})`);
-    await call('Page.reload');await wait('document.querySelector("#connection.online")');
+    await restoreGame({moves:promotionGame.history.map(h=>h.move),human:0,depth:3,claimed:false});
     await dragPiece(49,56,{touch:true});await wait('document.querySelector("#promotion").open');
     await evaluate('document.querySelector("#promotion-cancel").click()');
     assert(await evaluate('document.querySelector(\'[data-square="49"] .piece\')'),'Cancelling promotion removed the pawn');
@@ -152,8 +166,69 @@ async function run(){
     assert.equal(await evaluate('document.querySelectorAll(".square").length'),64);
     assert.equal(await evaluate('document.querySelector(\'[data-square="56"]\').getAttribute("aria-label")'),'a8 white queen');
     assert.equal(await evaluate('document.documentElement.dataset.theme'),'dark');
+    assert.equal(await evaluate('document.querySelector("#white-points").textContent'),'6 pts');
+    // Pass-and-play supports both colors and works with a disconnected FPGA.
+    endpointAvailable=false;
+    await evaluate('document.querySelector("#mode").value="local";document.querySelector("#mode").dispatchEvent(new Event("change"));document.querySelector("#new-game").click();document.querySelector("#connect").click()');
+    await wait('document.querySelector("#connection.offline") && !document.querySelector("#new-game").disabled');
+    const searchesBeforeLocal=searchDepths.length;
+    for(const [from,to] of [[12,28],[51,35],[28,35]]) await evaluate(`document.querySelector('[data-square="${from}"]').click();document.querySelector('[data-square="${to}"]').click()`);
+    assert.equal(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length'),3);
+    assert.equal(await evaluate('document.querySelector("#white-points").textContent'),'1 pts');
+    assert.equal(await evaluate('document.querySelector("#material-balance").textContent'),'White +1 material');
+    assert.equal(searchDepths.length,searchesBeforeLocal,'Pass-and-play requested an FPGA search');
+    await evaluate('document.querySelector("#undo").click()');
+    assert.equal(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length'),2);
+    assert.equal(await evaluate('document.querySelector("#white-points").textContent'),'0 pts');
+    // Self-play alternates both sides, pauses between turns, and restores paused.
+    endpointAvailable=true;
+    await evaluate('document.querySelector("#connect").click()');await wait('document.querySelector("#connection.online") && !document.querySelector("#new-game").disabled');
+    await evaluate('document.querySelector("#mode").value="watch";document.querySelector("#mode").dispatchEvent(new Event("change"));document.querySelector("#new-game").click()');
+    await wait('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length>=2 && !document.querySelector("#new-game").disabled');
+    await evaluate('document.querySelector("#stop").click()');
+    const pausedMoves=await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length');
+    await delay(900);assert.equal(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length'),pausedMoves);
+    await call('Page.reload');await wait('document.querySelector("#connection.online")');
+    assert.equal(await evaluate('document.querySelector("#turn-label").textContent'),'Paused');
+    await evaluate('document.querySelector("#undo").click()');
+    assert.equal(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length'),pausedMoves-1);
+    // An in-flight self-play search can be stopped without committing a move.
+    holdSearch=true;
+    await evaluate('document.querySelector("#new-game").click()');
+    await wait('document.querySelector("#new-game").disabled && !document.querySelector("#stop").hidden');
+    await evaluate('document.querySelector("#stop").click()');
+    await wait('!document.querySelector("#new-game").disabled');holdSearch=false;
+    assert.equal(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length'),0);
+    // Undo after stopping a normal opponent search must allow a fresh reply.
+    holdSearch=true;
+    await evaluate('document.querySelector("#mode").value="human";document.querySelector("#new-game").click();document.querySelector(\'[data-square="12"]\').click();document.querySelector(\'[data-square="28"]\').click()');
+    await wait('document.querySelector("#new-game").disabled');
+    await evaluate('document.querySelector("#stop").click()');await wait('!document.querySelector("#new-game").disabled');
+    holdSearch=false;
+    await evaluate('document.querySelector("#undo").click();document.querySelector(\'[data-square="12"]\').click();document.querySelector(\'[data-square="28"]\').click()');
+    await waitForReply();
+    // Restore a nearly expired human clock, then check Spatial followed by the normal reply depth.
+    await restoreGame({moves:[],human:0,mode:'speed',roundSeconds:5,clockLeft:80,clockMove:0,depth:3,timeSeconds:3});
+    const speedStart=searchDepths.length;
+    assert.equal(await evaluate('document.querySelector("#clock-time").textContent'),'Paused');
+    await evaluate('document.querySelector("#resume").click()');
+    await wait('JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length===2 && !document.querySelector("#new-game").disabled');
+    assert.deepEqual(searchDepths.slice(speedStart),[0,3],'Timeout must use Spatial, then restore the opponent search depth');
+    assert.deepEqual(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).assisted'),[0]);
+    assert(await evaluate('document.querySelector(".move-row").textContent.includes("⚡")'));
+    await evaluate('document.querySelector("#stop").click()');
+    const remaining=await evaluate('document.querySelector("#clock-progress").value');
+    await delay(250);assert.equal(await evaluate('document.querySelector("#clock-progress").value'),remaining,'Paused clock kept running');
+    // A promotion dialog cannot outlive its speed deadline or submit a stale move.
+    await restoreGame({moves:promotionGame.history.map(h=>h.move),human:0,mode:'speed',roundSeconds:5,clockLeft:1200,clockMove:8,depth:3,timeSeconds:3});
+    await evaluate('document.querySelector("#resume").click();document.querySelector(\'[data-square="49"]\').click();document.querySelector(\'[data-square="56"]\').click()');
+    await wait('document.querySelector("#promotion").open');
+    await wait('!document.querySelector("#promotion").open && JSON.parse(localStorage.getItem("fpga-chess-game")).moves.length===10 && !document.querySelector("#new-game").disabled');
+    assert.deepEqual(await evaluate('JSON.parse(localStorage.getItem("fpga-chess-game")).assisted'),[8]);
+    await evaluate('document.querySelector("#stop").click()');
+    fs.writeFileSync(path.join(root,'.cache/browser-console-mobile.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));
     assert.deepEqual(errors,[],'Browser raised JavaScript exceptions');
-    console.log('Desktop/mobile browser: themes and persistence, tap/mouse/touch moves, illegal/outside/cancelled drops, flipped-board dragging, promotion, board scroll lock, outside scrolling and reload passed.');
+    console.log('Desktop/mobile browser: gestures, themes, promotions, captures, engine console, offline pass-and-play, self-play, stop/resume, persistence and Spatial speed-round timeout passed.');
   }finally{if(socket)socket.close();browser.kill();server.close();}
 }
 run().catch(error=>{console.error(error);server.close();process.exitCode=1;});

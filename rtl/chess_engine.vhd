@@ -6,7 +6,8 @@ use ieee.numeric_std.all;
 use work.chess_pkg.all;
 
 entity chess_engine is
-  generic(CLOCK_DIVIDE : positive := 4; TRACE_SEARCH : boolean := false; CLOCK_HZ : positive := 50000000);
+  generic(CLOCK_DIVIDE : positive := 4; TRACE_SEARCH : boolean := false; CLOCK_HZ : positive := 50000000;
+    FAST_DESTINATIONS : boolean := true);
   port(clk,reset : in std_logic;
     rx_we : in std_logic; rx_address : in natural range 0 to 80; rx_data : in byte_t;
     command : in std_logic; request_length : in natural range 0 to 81;
@@ -167,6 +168,8 @@ architecture fabric of chess_engine is
   signal candidates : candidates_t;
   signal candidate_word : std_logic_vector(143 downto 0);
   signal candidate_index : natural range 0 to 511 := 0;
+  signal detail_record : natural range 0 to 3 := 0;
+  signal detail_byte : natural range 0 to 17 := 0;
   signal candidate_we : std_logic := '0';
   signal candidate_write_index : natural range 0 to 511 := 0;
   signal candidate_bank,published_bank : natural range 0 to 1 := 0;
@@ -229,7 +232,18 @@ begin
   activity(15 downto 0)<=field_leds;
 
   -- A single synchronous read port preserves M9K inference for candidates.
-  candidate_index <= published_bank*256+page*4 + (read_address/18 mod 4) when response_kind=14 else
+  -- Explanation replies contain exactly four 18-byte records. Bounded
+  -- comparisons replace a general divide/modulo network on the 50 MHz host
+  -- read port, without adding a cycle to the synchronous RAM interface.
+  process(all) begin
+    detail_record<=0; detail_byte<=0;
+    if read_address<18 then detail_byte<=read_address;
+    elsif read_address<36 then detail_record<=1; detail_byte<=read_address-18;
+    elsif read_address<54 then detail_record<=2; detail_byte<=read_address-36;
+    elsif read_address<72 then detail_record<=3; detail_byte<=read_address-54;
+    end if;
+  end process;
+  candidate_index <= published_bank*256+page*4 + detail_record when response_kind=14 else
                      published_bank*256+(page mod 16)*16 + (read_address/4 mod 16);
   route_address <= policy_boot_index mod 64 when state=BOOT_POLICY else
                    route_index when state=LOAD_ROUTES else neuron_index;
@@ -325,7 +339,7 @@ begin
       when 12=>
         if n<64 then read_byte<=mem_policy_a; end if;
       when 14=>
-        read_byte<=candidate_word(143-(n mod 18)*8 downto 136-(n mod 18)*8);
+        if n<72 then read_byte<=candidate_word(143-detail_byte*8 downto 136-detail_byte*8); end if;
       when 18=>
         if n<4 then read_byte<=std_logic_vector(search_nodes(31-n*8 downto 24-n*8));
         elsif n<8 then read_byte<=std_logic_vector(search_cutoffs(31-(n-4)*8 downto 24-(n-4)*8));
@@ -369,6 +383,8 @@ begin
     variable picked : std_logic_vector(31 downto 0);
     variable picked_index : natural range 0 to SEARCH_MOVES-1;
     variable cache_word : std_logic_vector(127 downto 0);
+    variable destination_mask : std_logic_vector(63 downto 0);
+    variable next_destination : natural range 0 to 64;
   begin
     if rising_edge(clk) then
       response_done<='0'; candidate_we<='0'; queue_we<='0'; cache_we<='0'; history_we<='0';
@@ -1077,12 +1093,37 @@ begin
             elsif promoting='1' and promotion<5 then promotion<=promotion+1; state<=PICK;
             else
               promotion<=2;
-              if dst=63 then
+              next_destination:=64;
+              if FAST_DESTINATIONS then
+                -- The wired spatial plane already knows which destinations
+                -- this source can reach. Walk its set bits in square order
+                -- instead of spending PICK/ADVANCE cycles on every square.
+                -- Pawn pushes and castling are absent from the attack plane;
+                -- include a superset here and retain all checks in PICK.
+                destination_mask:=reach;
+                if kind(b(src))=1 then
+                  if active_turn='0' then
+                    if src<56 then destination_mask(src+8):='1'; end if;
+                    if src/8=1 then destination_mask(src+16):='1'; end if;
+                  else
+                    if src>=8 then destination_mask(src-8):='1'; end if;
+                    if src/8=6 then destination_mask(src-16):='1'; end if;
+                  end if;
+                elsif kind(b(src))=6 then
+                  if src=4 then destination_mask(2):='1'; destination_mask(6):='1'; end if;
+                  if src=60 then destination_mask(58):='1'; destination_mask(62):='1'; end if;
+                end if;
+                for i in 63 downto 0 loop
+                  if i>dst and destination_mask(i)='1' then next_destination:=i; end if;
+                end loop;
+              elsif dst<63 then next_destination:=dst+1;
+              end if;
+              if next_destination=64 then
                 dst<=0;
                 if src=63 then
                   if search_active='1' then state<=NODE_READY; else state<=FINISH; end if;
                 else src<=src+1; state<=PICK; end if;
-              else dst<=dst+1; state<=PICK; end if;
+              else dst<=next_destination; state<=PICK; end if;
             end if;
           when FINISH=>
             published_bank<=candidate_bank; completed_count<=legal_count; completed_move<=best_move; completed_score<=best_score;

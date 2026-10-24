@@ -1,11 +1,20 @@
 # Expanded DE10-Lite chess engine
 
-The October 22 engine expands normal lookahead from three to six plies and
+The engine expands normal lookahead from three to six plies and
 uses the MAX 10's block RAM for search rather than replicating whole chess
 engines. The FPGA still chooses every computer move. The Pico serves the page
 and forwards UART commands; the browser checks legality independently.
 
 ## Search
+
+The October 24 destination scanner uses the wired reach map to skip impossible
+destinations, adding pawn pushes and castling squares before the existing legal
+filter. Deterministic three-ply fork/promotion comparisons preserve all 18 root
+scores, both selected moves, node counts and cache matches while reducing
+decision cycles from 4,503,888 to 3,582,792 (**20.45%**). This compares the same
+cached engine with fast scanning enabled/disabled, not different search depths.
+See [destination-results.json](destination-results.json). The production generic
+`FAST_DESTINATIONS` defaults to true; false retains the original walk for tests.
 
 The default targets five normal plies with a ten-second budget. Iterative
 deepening completes depths 2, 3, 4, 5, then 6 if requested. Every root move
@@ -64,7 +73,7 @@ king pawn shelter, and penalize isolated/doubled pawns and exposed king files.
 The root retains bounded recurrent-field and move-history preferences. Mate
 scores override those preferences so they cannot outweigh a forced mate.
 
-The release fits in 29,371 logic elements (59%) and 917,128 memory bits (55%),
+The release fits in 29,399 logic elements (59%) and 917,128 memory bits (55%),
 occupying 125 of the 182 M9K blocks (69%) after RAM width/depth packing.
 Setup, hold, recovery and removal timing pass at every available operating
 corner with a 50 MHz board clock. Engine state advances on its existing
@@ -72,6 +81,26 @@ four-cycle enable; UART and RAM ports operate at the native clock. See
 build-results.txt for exact slack and firmware measurements.
 The standalone engine generic also defaults to four and rejects a smaller
 divider, which would violate the synchronous RAM pipeline and SDC assumptions.
+
+The host explanation-byte decoder uses bounded comparisons for its four
+18-byte records in place of general division/modulo. Its RAM read latency is
+unchanged. The October 24 build passes setup with **2.690 ns** slack at the
+slow 85 C corner and hold with **0.087 ns** at the fast corner, with no
+unconstrained clocks or external ports.
+
+## Browser console and game modes
+
+The console polls existing status and command-18 telemetry while searching,
+then reads the recurrent field and selected candidate explanation before
+commit. It displays FPGA counters, the strongest five candidates and the seven
+score components. Field colors show the last completed snapshot, fixed with
+White at bottom. Scores are raw preferences, not a calibrated evaluation.
+
+Self-play sends both sides through the same hardware path. Speed-round expiry
+sends the human side through Spatial mode and reapplies normal settings for
+the opponent's reply. Pass-and-play does not request engine evaluations.
+Mode, color and human timer settings apply on New game. Speed/self-play restore
+paused, and timeout handling cancels any open human promotion choice.
 
 ## Reproduce checks
 

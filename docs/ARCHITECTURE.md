@@ -1,0 +1,163 @@
+# How the chess machine works
+
+The system has three jobs: run a chess game, connect a phone to the board, and
+choose a move. The browser, Pico W and FPGA each handle one of those jobs.
+
+## The three parts
+
+| Part | Responsibilities | Main source |
+| --- | --- | --- |
+| Browser | Board and gestures, independent chess rules, SAN/PGN, game history, captures, draws, game modes, human clock and engine display | `web/chess.js`, `web/app.js`, `web/style.css` |
+| Browser transport | Queue commands, upload positions/settings, poll counters, compare legal sets and board readbacks, request the selected move's guarded commit | `web/fpga.js` |
+| Pico W | Host `FPGA-Chess` Wi-Fi, serve the embedded page, bridge HTTP to framed UART, retry packets | `firmware/pico_chess/pico_chess.ino`, `chess_protocol.h` |
+| FPGA endpoint | Validate framing and CRC, handle retries, snapshot replies while evaluation continues | `rtl/chess_uart_bridge.vhd`, `uart_rx.v`, `uart_tx.v` |
+| FPGA engine | Legal move generation, speculative moves, evaluation, search, recurrent field, move selection and telemetry | `rtl/chess_engine.vhd` |
+| Spatial fabric | Concurrent White attacks, Black attacks and selected-source reachability | `rtl/chess_spatial.vhd` |
+| FPGA memory | Search tables and recurrent cell/policy storage in M9K RAM | `rtl/chess_search_memory.vhd`, `chess_cell_memory.vhd` |
+| Board wrapper | 50 MHz clock, reset/key synchronization, UART pin connections, LEDs and seven-segment display | `rtl/de10_chess.vhd` |
+
+No internet server is involved during play. The page, scripts and piece artwork
+are embedded in Pico flash by `web/embed_web.ps1`. The phone sends compact chess
+commands; it does not stream the board display over UART.
+
+## What happens after you play e4
+
+The browser first checks that e2-e4 is legal and records the move. For the
+FPGA's Black turn it uploads all 64 squares plus side to move, castling rights
+and en-passant square. This position is the FPGA's factual board.
+
+The engine builds its attack maps and recurrent field. For every possible
+reply it temporarily changes a speculative board and checks whether Black's
+king is attacked. It also handles rook movement when castling, the pawn removed
+by en passant and all four promotion choices.
+
+At the default settings, it completes a two-ply search, then tries three, four
+and five plies. A ply is one move by one side. With five plies, the tree includes
+Black's reply, White's response, Black's next move, White's next response and
+Black's next move. Capture extensions examine tactical continuations further.
+
+The next iteration writes into a different candidate-results RAM bank. If the
+ten-second budget expires, the previous complete bank stays available. The
+first iteration is allowed to finish even if it exceeds that budget, so the
+browser always receives a complete legal set.
+
+The browser compares the hardware's entire legal set with its own rules,
+checks that the loaded position still matches, and obtains the selected move's
+explanation. It then commits that exact move with a generation number. The
+FPGA rejects an obsolete generation or a different move. Finally the browser
+reads back the resulting board and updates the display.
+
+## What is parallel, and what is shared
+
+The spatial fabric has a cell for each square and three wired planes. Sliding
+piece rays travel through empty cells and stop at occupied cells. Knights,
+kings and pawn attacks use fixed local connections. These connections evaluate
+concurrently; there is no software loop tracing each ray on the Pico.
+
+The search controller is a state machine. It explores one branch at a time,
+saving and restoring boards in RAM. Alpha-beta allows it to stop a branch once
+the branch cannot improve the decision. Move ordering tries cache hints,
+captures, promotions, killer moves and useful quiet moves early, making those
+cutoffs more likely.
+
+The recurrent field contains 64 signed cell values. Shared arithmetic updates
+them using neighboring values, attack information, configured weights, local
+bias and pseudorandom input. This is a programmable recurrent circuit, not a
+trained neural network. In search mode its contribution is bounded so that
+material analysis and forced mates dominate it. Spatial mode uses the root
+scoring process without exploring the search tree.
+
+This division keeps the design within the MAX 10: parallel square-level
+geometry, a shared search/evaluation controller, and RAM for state. The native
+clock is 50 MHz; the controller's common enable occurs every four clocks.
+UART and memory ports use the native clock. Raising the clock or removing that
+enable would require redesigning the synchronous pipelines and timing constraints.
+
+## Memory and reuse
+
+The 4,096-entry position cache stores a full 64-bit position key, search depth,
+score bound, preferred move and validity epoch. A cache match can supply an
+answer when the stored search is deep enough, or a move-ordering hint otherwise.
+The key includes side to move, castling rights and en passant. Mate distances,
+quiescence allowance and stack allowance also participate in reuse decisions.
+An evaluation changes the epoch, so the cache reuses positions within that
+evaluation rather than carrying scored results across unrelated turns.
+
+Other RAM holds 12 board-stack levels, 12 move queues, quiet-move history,
+Zobrist hashing constants and two root-result banks. See [ENGINE.md](ENGINE.md)
+for capacities, bounds and draw handling.
+
+## The destination-scan improvement
+
+Previously, an eligible source visited every destination square, alternating
+`PICK` and `ADVANCE`, even when its reach map already ruled most of them out.
+The new scanner finds the next set bit after the current destination. Pawn
+pushes and castling destinations are added because attack maps do not include
+those moves. The existing checks still decide whether each candidate is legal.
+
+Destinations remain in ascending square order, and promotions still visit all
+four choices. Deterministic comparisons can therefore check every root score,
+selected move, node count and cache-match count against the original scanner.
+`FAST_DESTINATIONS=false` selects the original walk for that comparison; the
+production generic defaults to the reach-map scanner.
+
+Explanation reads also use bounded comparisons for the four 18-byte records
+in a reply. This avoids synthesizing a general division/modulo network into
+the native-clock byte decoder and preserves the existing RAM read latency.
+
+## Reading the engine console
+
+| Display | Meaning |
+| --- | --- |
+| Pipeline strip | Host-observed upload, field/search polling, verification and commit stages |
+| FPGA decision time | FPGA cycle counter divided by 50 million, including field setup and all search iterations |
+| Nodes | Visited search nodes, including earlier iterations and capture extensions |
+| Completed depth | Last fully published iteration; a larger requested depth may remain unfinished |
+| Nodes / FPGA second | Nodes divided by FPGA decision time; excludes HTTP verification/commit time |
+| Alpha-beta cutoffs | Branches stopped by the alpha-beta search |
+| Matching cache probes | Full-key matches, including hints that could not directly supply a score |
+| Cache writes | Entries stored during the evaluation |
+| Search trace | Cumulative node samples over the FPGA cycle counter; not a waveform or logic analyzer |
+| Spatial heatmap | Last completed field snapshot; orientation remains White at bottom when the main board flips |
+| Move preference | Hardware root ranking, not a probability or a calibrated centipawn evaluation |
+| Chosen move breakdown | Captures, safety, activity, field, habit, noise and search components from the selected result record |
+
+Status is polled around every 120 ms, with search telemetry sampled around
+every 500 ms. UART and HTTP add latency. The final board and explanations are
+read before commit; the completed field is not presented as a live simulation.
+The counters are snapshots of an evolving engine, so live rates are approximate.
+
+## Game modes
+
+Self-play uses this same command path twice per full move. There are no extra
+engines instantiated. Pass-and-play uses the browser rules and requires no
+FPGA searches.
+
+The speed clock belongs to the browser. On expiry, it cancels an open promotion
+dialog and requests a Spatial move from the FPGA for the human side. That move
+gets the same legal-set verification and guarded commit as an ordinary reply.
+The next opponent turn reapplies the selected search depth and time budget.
+The timer is paused while the FPGA works; the next human clock starts after
+the reply is verified. Reload restores speed/self-play paused. A backgrounded
+browser can delay a timeout callback until the page runs again.
+
+## Where more strength could come from
+
+The current scanner reduces wasted work per node. That can let the engine
+finish more depth within a budget, but it is not an Elo claim. The most useful
+next experiments are:
+
+1. Profile move generation, board restore and evaluation separately to find
+   which microsteps now consume the most decision cycles.
+2. Replace repeated move-queue selection scans with a more efficient ordering
+   structure, preserving early access to captures and cache hints.
+3. Explore principal-variation search at the root. Shared root bounds can prune
+   more work, but the current protocol promises complete scored candidates;
+   bounds would need to be identified or re-searched before publication.
+4. Consider persistent cache reuse with explicit policy and repetition context,
+   rather than simply dropping the epoch guard.
+5. Explore limited parallel work only after profiling and resource measurements.
+   Replicating the current full engine would multiply memory and logic costs.
+
+These are design directions. Only changes described in the implementation and
+validation records should be treated as shipped features or measured gains.

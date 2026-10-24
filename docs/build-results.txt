@@ -1,15 +1,15 @@
-DE10-Lite expanded chess build results
+DE10-Lite chess engine console release - October 24, 2026
 Quartus Prime Lite 23.1std.1; 10M50DAF484C7G
 
-Fitter Status : Successful - Thu Oct 22 22:32:16 2026
+Fitter Status : Successful - Sat Oct 24 15:06:48 2026
 Quartus Prime Version : 23.1std.1 Build 993 05/14/2024 SC Lite Edition
 Revision Name : de10_chess
 Top-level Entity Name : de10_chess
 Family : MAX 10
 Device : 10M50DAF484C7G
 Timing Models : Final
-Total logic elements : 29,371 / 49,760 ( 59 % )
-    Total combinational functions : 27,360 / 49,760 ( 55 % )
+Total logic elements : 29,399 / 49,760 ( 59 % )
+    Total combinational functions : 27,348 / 49,760 ( 55 % )
     Dedicated logic registers : 8,137 / 49,760 ( 16 % )
 Total registers : 8137
 Total pins : 63 / 360 ( 18 % )
@@ -20,27 +20,30 @@ Total PLLs : 0 / 4 ( 0 % )
 UFM blocks : 0 / 1 ( 0 % )
 ADC blocks : 0 / 2 ( 0 % )
 
-Slow 1200mV 85C Model setup slack: 0.253 ns
-Slow 1200mV 85C Model hold slack: 0.236 ns
-Slow 1200mV 85C Model recovery slack: 15.801 ns
-Slow 1200mV 85C Model removal slack: 3.236 ns
-Slow 1200mV 0C Model setup slack: 2.066 ns
-Slow 1200mV 0C Model hold slack: 0.232 ns
-Slow 1200mV 0C Model recovery slack: 16.182 ns
-Slow 1200mV 0C Model removal slack: 2.984 ns
-Fast 1200mV 0C Model setup slack: 12.056 ns
-Fast 1200mV 0C Model hold slack: 0.092 ns
-Fast 1200mV 0C Model recovery slack: 17.900 ns
-Fast 1200mV 0C Model removal slack: 1.446 ns
-
-Pico W firmware rebuilt October 22, 2026, with expanded search controls.
-Sketch uses 474772 bytes (22%) of program storage space. Maximum is 2093056 bytes.
-Global variables use 76408 bytes (29%) of dynamic memory, leaving 185736 bytes for local variables. Maximum is 262144 bytes.
-Arduino-Pico 6.0.0; rp2040:rp2040:rpipicow:freq=133
+Slow 1200mV 85C Model setup slack: 2.690 ns
+Slow 1200mV 85C Model hold slack: 0.240 ns
+Slow 1200mV 85C Model recovery slack: 13.390 ns
+Slow 1200mV 85C Model removal slack: 5.253 ns
+Slow 1200mV 0C Model setup slack: 4.171 ns
+Slow 1200mV 0C Model hold slack: 0.242 ns
+Slow 1200mV 0C Model recovery slack: 13.888 ns
+Slow 1200mV 0C Model removal slack: 4.758 ns
+Fast 1200mV 0C Model setup slack: 12.813 ns
+Fast 1200mV 0C Model hold slack: 0.087 ns
+Fast 1200mV 0C Model recovery slack: 16.707 ns
+Fast 1200mV 0C Model removal slack: 2.327 ns
 
 ; Illegal Clocks                  ; 0     ; 0    ;
 ; Unconstrained Clocks            ; 0     ; 0    ;
 ; Unconstrained Input Ports       ; 0     ; 0    ;
 ; Unconstrained Output Ports      ; 0     ; 0    ;
-
 ; M9Ks                                        ; 125 / 182 ( 69 % )             ;
+
+Pico W firmware - October 24, 2026
+Arduino-Pico 6.0.0; rp2040:rp2040:rpipicow:freq=133
+Sketch uses 499620 bytes (23%) of program storage space. Maximum is 2093056 bytes.
+Global variables use 76408 bytes (29%) of dynamic memory, leaving 185736 bytes for local variables. Maximum is 262144 bytes.
+
+Destination scan benchmark: 3,582,792 vs 4,503,888 cycles (20.45% reduction).
+Both selected moves, all 18 candidate scores, node counts and cache matches agree.
+See destination-results.json; this is a two-fixture comparison, not an Elo estimate.
