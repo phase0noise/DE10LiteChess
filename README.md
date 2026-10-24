@@ -64,6 +64,14 @@ to skip impossible squares. Pawn pushes and castling are explicitly included
 before the ordinary legality checks. This reduces work per searched node
 without increasing the requested depth or removing moves.
 
+The datapath now restores **eight squares together**, computes all source
+eligibility bits concurrently, and evaluates **two pawn files in parallel**.
+These remove repeated controller steps throughout the search tree. Material,
+piece-placement and hash accumulation still visit one square per step; the
+next design stage is four evaluation lanes with matching hash-memory banks.
+See [docs/PARALLEL_ARCHITECTURE.md](docs/PARALLEL_ARCHITECTURE.md) for the
+implemented stages and the proposed wider evaluator.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a source map, a worked
 example, and the next engine improvements worth exploring.
 
@@ -148,14 +156,16 @@ swipe outside the board to scroll the page.
 
 The expanded engine uses a **4,096-entry position cache in M9K block RAM**,
 ordered alpha-beta search, iterative deepening, and up to four capture/promotion
-extension plies with check evasions. The reach-map destination scanner uses
-**20.45% fewer decision cycles** than the original scanner on the deterministic
-fork/promotion comparison, with identical moves, candidate scores and nodes.
-That is a measured improvement on two fixtures, not a general strength rating.
+extension plies with check evasions. The parallel datapath uses **57.19% fewer
+decision cycles (2.34x throughput)** than release `8e713ca` on the deterministic
+three-ply fork/promotion comparison, preserving moves, candidate scores and
+node counts. This follows the earlier reach-map scanner improvement of 20.45%.
+These are measurements on two fixtures, not a general strength rating.
+See [docs/parallel-results.json](docs/parallel-results.json).
 Evaluation blends middlegame and endgame
 piece placement and includes passed/isolated/doubled pawns, bishop pairs, rook
-files, and king shelter. The fitted design uses **29,399 / 49,760 logic elements
-(59%)** and **917,128 / 1,677,312 memory bits (55%)**, occupying **125 / 182 M9K
+files, and king shelter. The fitted design uses **30,949 / 49,760 logic elements
+(62%)** and **917,128 / 1,677,312 memory bits (55%)**, occupying **125 / 182 M9K
 blocks (69%)**, with passing 50 MHz timing.
 The October 22 engine's independent mate-in-three regression found a winning first move
 in **12/12 positions**, compared with **2/12** for the previous engine. This is
@@ -164,6 +174,8 @@ The October 24 update checks legality, tactics, cache equivalence, deadlines and
 destination-scan equivalence; it does not rerun that longer strength benchmark.
 See [docs/ENGINE.md](docs/ENGINE.md) for the search design and controls. Load
 **both new FPGA and Pico images** for the expanded controls.
+The parallel-datapath update changes the FPGA images; the Pico image retains
+the mobile controls and engine console from `8e713ca`.
 
 **KEY0** resets the endpoint. **KEY1** starts evaluation on the currently loaded
 position for bench diagnostics. LEDR9 indicates engine activity, LEDR8 the side

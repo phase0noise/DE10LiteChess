@@ -29,6 +29,9 @@ try {
             defaultTargetDepth = 5
             defaultThinkSeconds = 10
             positionCacheEntries = 4096
+            boardRestoreLanes = 8
+            parallelSourceMask = $true
+            pawnFileArithmeticLanes = 2
         }
         ssid = 'FPGA-Chess'
         url = 'http://192.168.4.1/'

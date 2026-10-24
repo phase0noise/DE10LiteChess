@@ -60,6 +60,14 @@ the branch cannot improve the decision. Move ordering tries cache hints,
 captures, promotions, killer moves and useful quiet moves early, making those
 cutoffs more likely.
 
+The board stack now moves eight squares per 32-bit word. Restoring a branch
+takes 16 controller enables rather than 128. A parallel source mask skips
+ineligible source squares, and two pawn-file arithmetic lanes halve the
+eight-file evaluation pass. These changes speed work repeated at each node.
+The material/placement/hash scan still handles one square per enable; the
+proposed four-lane evaluator and its memory banks are described in
+[PARALLEL_ARCHITECTURE.md](PARALLEL_ARCHITECTURE.md).
+
 The recurrent field contains 64 signed cell values. Shared arithmetic updates
 them using neighboring values, attack information, configured weights, local
 bias and pseudorandom input. This is a programmable recurrent circuit, not a

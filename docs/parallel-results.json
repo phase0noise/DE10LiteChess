@@ -1,0 +1,104 @@
+{
+  "positions": 2,
+  "candidateScores": 18,
+  "reference": {
+    "stackLanes": 1,
+    "fastSources": false,
+    "pawnLanes": 1,
+    "cycles": 3582792,
+    "results": [
+      {
+        "position": 0,
+        "best": 2915,
+        "depth": 3,
+        "nodes": 1243,
+        "cacheHits": 469,
+        "cycles": 3115576
+      },
+      {
+        "position": 1,
+        "best": 24112,
+        "depth": 3,
+        "nodes": 193,
+        "cacheHits": 62,
+        "cycles": 467216
+      }
+    ]
+  },
+  "wideStack": {
+    "stackLanes": 8,
+    "fastSources": false,
+    "pawnLanes": 1,
+    "cycles": 2126344,
+    "results": [
+      {
+        "position": 0,
+        "best": 2915,
+        "depth": 3,
+        "nodes": 1243,
+        "cacheHits": 469,
+        "cycles": 1869688
+      },
+      {
+        "position": 1,
+        "best": 24112,
+        "depth": 3,
+        "nodes": 193,
+        "cacheHits": 62,
+        "cycles": 256656
+      }
+    ]
+  },
+  "sourceMask": {
+    "stackLanes": 8,
+    "fastSources": true,
+    "pawnLanes": 1,
+    "cycles": 1556760,
+    "results": [
+      {
+        "position": 0,
+        "best": 2915,
+        "depth": 3,
+        "nodes": 1243,
+        "cacheHits": 469,
+        "cycles": 1376424
+      },
+      {
+        "position": 1,
+        "best": 24112,
+        "depth": 3,
+        "nodes": 193,
+        "cacheHits": 62,
+        "cycles": 180336
+      }
+    ]
+  },
+  "parallel": {
+    "stackLanes": 8,
+    "fastSources": true,
+    "pawnLanes": 2,
+    "cycles": 1533784,
+    "results": [
+      {
+        "position": 0,
+        "best": 2915,
+        "depth": 3,
+        "nodes": 1243,
+        "cacheHits": 469,
+        "cycles": 1356536
+      },
+      {
+        "position": 1,
+        "best": 24112,
+        "depth": 3,
+        "nodes": 193,
+        "cacheHits": 62,
+        "cycles": 177248
+      }
+    ]
+  },
+  "specialCandidateScores": 237,
+  "specialPositions": 17,
+  "reductionPercent": 57.19,
+  "speedup": 2.336
+}

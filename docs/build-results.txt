@@ -1,37 +1,37 @@
-DE10-Lite chess engine console release - October 24, 2026
+DE10-Lite parallel datapath release - October 24, 2026
 Quartus Prime Lite 23.1std.1; 10M50DAF484C7G
 
-Fitter Status : Successful - Sat Oct 24 15:06:48 2026
+Fitter Status : Successful - Sat Oct 24 17:11:37 2026
 Quartus Prime Version : 23.1std.1 Build 993 05/14/2024 SC Lite Edition
 Revision Name : de10_chess
 Top-level Entity Name : de10_chess
 Family : MAX 10
 Device : 10M50DAF484C7G
 Timing Models : Final
-Total logic elements : 29,399 / 49,760 ( 59 % )
-    Total combinational functions : 27,348 / 49,760 ( 55 % )
-    Dedicated logic registers : 8,137 / 49,760 ( 16 % )
-Total registers : 8137
+Total logic elements : 30,949 / 49,760 ( 62 % )
+    Total combinational functions : 28,919 / 49,760 ( 58 % )
+    Dedicated logic registers : 8,136 / 49,760 ( 16 % )
+Total registers : 8136
 Total pins : 63 / 360 ( 18 % )
 Total virtual pins : 0
 Total memory bits : 917,128 / 1,677,312 ( 55 % )
-Embedded Multiplier 9-bit elements : 40 / 288 ( 14 % )
+Embedded Multiplier 9-bit elements : 45 / 288 ( 16 % )
 Total PLLs : 0 / 4 ( 0 % )
 UFM blocks : 0 / 1 ( 0 % )
 ADC blocks : 0 / 2 ( 0 % )
 
-Slow 1200mV 85C Model setup slack: 2.690 ns
-Slow 1200mV 85C Model hold slack: 0.240 ns
-Slow 1200mV 85C Model recovery slack: 13.390 ns
-Slow 1200mV 85C Model removal slack: 5.253 ns
-Slow 1200mV 0C Model setup slack: 4.171 ns
-Slow 1200mV 0C Model hold slack: 0.242 ns
-Slow 1200mV 0C Model recovery slack: 13.888 ns
-Slow 1200mV 0C Model removal slack: 4.758 ns
-Fast 1200mV 0C Model setup slack: 12.813 ns
-Fast 1200mV 0C Model hold slack: 0.087 ns
-Fast 1200mV 0C Model recovery slack: 16.707 ns
-Fast 1200mV 0C Model removal slack: 2.327 ns
+Slow 1200mV 85C Model setup slack: 2.093 ns
+Slow 1200mV 85C Model hold slack: 0.219 ns
+Slow 1200mV 85C Model recovery slack: 14.175 ns
+Slow 1200mV 85C Model removal slack: 4.728 ns
+Slow 1200mV 0C Model setup slack: 3.651 ns
+Slow 1200mV 0C Model hold slack: 0.217 ns
+Slow 1200mV 0C Model recovery slack: 14.662 ns
+Slow 1200mV 0C Model removal slack: 4.336 ns
+Fast 1200mV 0C Model setup slack: 12.649 ns
+Fast 1200mV 0C Model hold slack: 0.071 ns
+Fast 1200mV 0C Model recovery slack: 17.072 ns
+Fast 1200mV 0C Model removal slack: 2.102 ns
 
 ; Illegal Clocks                  ; 0     ; 0    ;
 ; Unconstrained Clocks            ; 0     ; 0    ;
@@ -39,11 +39,21 @@ Fast 1200mV 0C Model removal slack: 2.327 ns
 ; Unconstrained Output Ports      ; 0     ; 0    ;
 ; M9Ks                                        ; 125 / 182 ( 69 % )             ;
 
-Pico W firmware - October 24, 2026
+Board stack: 96 x 32-bit words, 3072 logical bits, one M9K.
+Controller restore: 16 enables, previously 128.
+Parallel source eligibility mask: enabled.
+Pawn-file arithmetic: two lanes, four enables, previously eight.
+
+Pico W engine-console image unchanged from 8e713ca.
 Arduino-Pico 6.0.0; rp2040:rp2040:rpipicow:freq=133
 Sketch uses 499620 bytes (23%) of program storage space. Maximum is 2093056 bytes.
-Global variables use 76408 bytes (29%) of dynamic memory, leaving 185736 bytes for local variables. Maximum is 262144 bytes.
+Global variables use 76408 bytes (29%) of dynamic memory. Maximum is 262144 bytes.
 
-Destination scan benchmark: 3,582,792 vs 4,503,888 cycles (20.45% reduction).
-Both selected moves, all 18 candidate scores, node counts and cache matches agree.
-See destination-results.json; this is a two-fixture comparison, not an Elo estimate.
+Deterministic three-ply fork/promotion comparison; same moves, all 18 root scores, nodes and cache matches.
+Reference (1 stack lane, sequential sources, 1 pawn lane): 3582792 cycles.
+8-square restore: 2126344 cycles.
+Plus parallel sources: 1556760 cycles.
+Plus paired pawn-file arithmetic: 1533784 cycles.
+Reduction: 57.19%; throughput ratio: 2.336x on these two fixtures.
+Special-rule search: all 237 scores agree across 19 positions.
+See parallel-results.json; this is not an Elo estimate.

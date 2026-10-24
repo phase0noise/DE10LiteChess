@@ -7,11 +7,34 @@ that all firmware/browser assets are present. It also checks the staged ZIP.
 
 ## Functional results
 
-The October 24 run passes `tools/verify.ps1 -Browser`, the Quartus timing gate
-and the Pico build. The longer twelve-position strength benchmark below is
-retained as an explicitly dated October 22 measurement.
+The engine-console release passed `tools/verify.ps1 -Browser` and the Pico
+build. The later parallel-datapath update passes the Quartus timing gate,
+the 147-position root legality checks, a final `tools/verify.ps1 -Positions 0`
+run, and the native UART/special-rule checks. Web/Pico sources are unchanged
+in that later update. The longer twelve-position strength benchmark below
+is retained as an explicitly dated October 22 measurement.
 
-- **Destination scan comparison:** cached three-ply searches with random root
+- **Parallel datapath:** the reference uses one stack lane, sequential source
+  scanning and one pawn-file lane. The new version uses eight stack lanes,
+  a parallel source mask and two pawn-file arithmetic lanes. Cached three-ply
+  fork/promotion searches preserve all 18 scores, both selected moves, node
+  counts and cache matches while reducing cycles from **3,582,792** to
+  **1,533,784** (**57.19% fewer; 2.336x throughput** on these fixtures). The
+  intermediate variants isolate the contribution of each change. Random root
+  preferences and field relaxation are disabled in these comparisons.
+- **Parallel special-move search:** all 19 independent rule positions are
+  searched to depth 2, including castling, en passant, pinned pieces, promotion,
+  checkmate/stalemate and insufficient material. Reference and parallel variants
+  preserve all **237** candidate scores and all selected moves, node counts and
+  cache matches in the 17 positions with legal moves. Existing tactical,
+  cache on/off, deadline, depth-six and guarded-commit checks also pass.
+  [parallel-results.json](parallel-results.json) records the staged comparison.
+- **Parallel fit:** 30,949 logic elements (62%), 917,128 memory bits and 125 M9Ks.
+  The stack packs 96 x 32 bits into one M9K. There are 45 nine-bit multiplier
+  elements in use. All operating-condition timing checks pass, including
+  2.093 ns slow-corner setup slack and 0.071 ns fast-corner hold slack.
+
+- **Earlier destination scan comparison (`8e713ca`):** cached three-ply searches with random root
   preferences disabled preserve all **18** candidate scores, both selected
   moves, node counts and cache-match counts. The reach-map scanner takes
   **3,582,792** cycles versus **4,503,888** for the original walk, **20.45% fewer**
@@ -63,8 +86,9 @@ retained as an explicitly dated October 22 measurement.
   5,766,764 without the cache, about 22% fewer cycles on these two fixtures.
   The October 24 cache on/off comparison also passes with the new scanner.
 - **Budget expiry** passes before the first iteration finishes and during the
-  next iteration. Both runs retain the complete seven-move promotion candidate
-  set from depth 2, retain matching explanations, preserve the factual position,
+  next iteration. The parallel build retains the complete seven-move promotion
+  candidate set from depth 2 for the earliest expiry and depth 3 for the later
+  expiry. Both retain matching explanations, preserve the factual position,
   and pass guarded queen-promotion commit/readback and stale-commit rejection.
   The simulated clock is scaled to exercise deadlines quickly; the FPGA build
   uses 50 MHz. A requested depth of 6 reports the last completed depth correctly.
@@ -115,7 +139,7 @@ The Pico W firmware compiles with Arduino-Pico **6.0.0**, **133 MHz**, at
 **499,620 bytes (23% flash)** and **76,408 bytes (29% RAM)**. The generated header contains the entire webpage
 and artwork. There are no CDN or internet requests during play.
 
-The expanded FPGA fits in **29,399 / 49,760 logic elements (59%)** and
+The expanded FPGA fits in **30,949 / 49,760 logic elements (62%)** and
 **917,128 / 1,677,312 memory bits (55%)**. The previous build used 19,753 logic
 elements (40%) and 46,728 memory bits (3%). The new M9K allocations include the
 position cache, move queues, history, key ROM and doubled candidate-result RAM.

@@ -43,6 +43,23 @@ try {
     }
     & $Python tests/check_destinations.py .cache/destinations-true.log .cache/destinations-false.log
     if ($LASTEXITCODE -ne 0) { throw 'Destination scan comparison failed.' }
+    foreach ($variant in @(@(1,'false',1),@(8,'false',1),@(8,'true',1),@(8,'true',2))) {
+        $lanes=$variant[0];$sources=$variant[1];$pawns=$variant[2];$log=".cache/parallel-$lanes-$sources-$pawns.log"
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/cache_vectors.txt' -gSEARCH_DEPTH=3 -gCLOCK_DIVIDE=4 -gDETERMINISTIC=true "-gSTACK_LANES=$lanes" "-gFAST_SOURCES=$sources" "-gPAWN_LANES=$pawns" --assert-level=error *> $log
+        if ($LASTEXITCODE -ne 0) { Get-Content $log -Tail 20; throw 'Parallel datapath regression failed.' }
+    }
+    # Search the independent castling/en-passant/promotion/check fixtures as
+    # well as merely generating their root moves. This repeatedly exercises
+    # packed board restores after special moves inside the speculative tree.
+    foreach ($reference in @('true','false')) {
+        $lanes=8;$sources='true';$pawns=2
+        if ($reference -eq 'true') { $lanes=1;$sources='false';$pawns=1 }
+        $log=".cache/parallel-special-$reference.log"
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/chess_vectors.txt' -gSEARCH_DEPTH=2 -gQUIESCENCE=0 -gPOSITION_COUNT=19 -gCLOCK_DIVIDE=4 -gDETERMINISTIC=true "-gSTACK_LANES=$lanes" "-gFAST_SOURCES=$sources" "-gPAWN_LANES=$pawns" --assert-level=error *> $log
+        if ($LASTEXITCODE -ne 0) { Get-Content $log -Tail 20; throw 'Parallel special-move search regression failed.' }
+    }
+    & $Python tests/check_parallel.py .cache/parallel-8-true-2.log .cache/parallel-1-false-1.log --wide-only .cache/parallel-8-false-1.log --source-mask .cache/parallel-8-true-1.log --special-parallel .cache/parallel-special-false.log --special-reference .cache/parallel-special-true.log
+    if ($LASTEXITCODE -ne 0) { throw 'Parallel datapath comparison failed.' }
     $tactics[8] | Set-Content .cache/budget_vectors.txt
     foreach ($budgetClock in @(10000,400000)) {
         & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/budget_vectors.txt' -gSEARCH_DEPTH=6 -gCLOCK_DIVIDE=4 -gBUDGET_SECONDS=1 "-gTEST_CLOCK_HZ=$budgetClock" -gEXPECT_TIMEOUT=true --assert-level=error

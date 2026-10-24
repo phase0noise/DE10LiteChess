@@ -7,7 +7,8 @@ use work.chess_pkg.all;
 
 entity chess_engine is
   generic(CLOCK_DIVIDE : positive := 4; TRACE_SEARCH : boolean := false; CLOCK_HZ : positive := 50000000;
-    FAST_DESTINATIONS : boolean := true);
+    FAST_DESTINATIONS : boolean := true; STACK_LANES : positive := 8; FAST_SOURCES : boolean := true;
+    PAWN_LANES : positive := 2);
   port(clk,reset : in std_logic;
     rx_we : in std_logic; rx_address : in natural range 0 to 80; rx_data : in byte_t;
     command : in std_logic; request_length : in natural range 0 to 81;
@@ -72,11 +73,14 @@ architecture fabric of chess_engine is
   signal score_safety,score_progress,score_habit : integer range -131072 to 131071 := 0;
   signal neuron_direction : natural range 0 to 9 := 0;
   signal neighbor_accum : signed(13 downto 0) := (others=>'0');
-  -- Shared spatial fabric, serialized board stack: no replicated chess engines.
-  type stack_ram_t is array(0 to SEARCH_LEVELS*64-1) of piece_t;
+  -- Pack adjacent squares into one RAM word. Eight lanes restore a rank at a
+  -- time while retaining one shared spatial fabric and search controller.
+  constant STACK_WORDS : positive := 64/STACK_LANES;
+  subtype stack_word_t is std_logic_vector(STACK_LANES*4-1 downto 0);
+  type stack_ram_t is array(0 to SEARCH_LEVELS*STACK_WORDS-1) of stack_word_t;
   signal search_stack : stack_ram_t;
   attribute ramstyle of search_stack : signal is "M9K";
-  signal search_q : piece_t;
+  signal search_q : stack_word_t;
   signal search_sp : natural range 0 to SEARCH_LEVELS-1 := 0;
   signal search_index : natural range 0 to 63 := 0;
   signal search_active,search_returning : std_logic := '0';
@@ -148,6 +152,7 @@ architecture fabric of chess_engine is
 
   signal rng : unsigned(31 downto 0) := x"D0E2C35F";
   signal white_a,black_a,reach : std_logic_vector(63 downto 0);
+  signal source_available : std_logic_vector(63 downto 0);
   signal white_map,black_map : std_logic_vector(63 downto 0) := (others=>'0');
   signal friend_a,enemy_a : std_logic_vector(63 downto 0);
   signal turn : std_logic := '0';
@@ -199,6 +204,10 @@ architecture fabric of chess_engine is
 begin
   assert CLOCK_DIVIDE>=4
     report "Search RAM pipelines and timing constraints require a divide of at least four" severity failure;
+  assert STACK_LANES=1 or STACK_LANES=2 or STACK_LANES=4 or STACK_LANES=8
+    report "Board stack supports 1, 2, 4 or 8 parallel square lanes" severity failure;
+  assert PAWN_LANES=1 or PAWN_LANES=2
+    report "Pawn evaluator supports one or two parallel file lanes" severity failure;
   storage : entity work.chess_search_memory port map(clk=>clk,
     queue_we=>queue_we,queue_write_address=>queue_write_address,queue_read_address=>queue_read_address,
     queue_write_data=>queue_write_data,queue_data=>queue_data,
@@ -214,6 +223,9 @@ begin
   spatial : entity work.chess_spatial port map(board=>b,source=>src,
     white_attack=>white_a,black_attack=>black_a,reachable=>reach);
   active_turn <= node_turn(search_sp) when search_active='1' else turn;
+  source_cells : for s in 0 to 63 generate
+    source_available(s)<='1' when b(s)(2 downto 0)/="000" and b(s)(3)=active_turn else '0';
+  end generate;
   active_rights <= node_rights(search_sp) when search_active='1' else rights;
   active_ep <= node_ep(search_sp) when search_active='1' else ep;
   active_wk <= node_wk(search_sp) when search_active='1' else wk;
@@ -247,7 +259,9 @@ begin
                      published_bank*256+(page mod 16)*16 + (read_address/4 mod 16);
   route_address <= policy_boot_index mod 64 when state=BOOT_POLICY else
                    route_index when state=LOAD_ROUTES else neuron_index;
-  process(clk) begin
+  process(clk)
+    variable stack_write_word : stack_word_t;
+  begin
     if rising_edge(clk) then
       read_data<=read_byte;
       if candidate_we='1' then candidates(candidate_write_index)<=candidate_write_data; end if;
@@ -260,9 +274,12 @@ begin
         elsif state=LOAD_ROUTES then route_table(route_address)<=packet_rx(17+route_index); end if;
       end if;
       if mem_cell_we='1' then snapshot_table(neuron_index)<=mem_cell_data; end if;
-      search_q <= search_stack(search_sp*64+search_index);
-      if state=SEARCH_SAVE and phase=0 then
-        search_stack(search_sp*64+search_index)<=b(search_index);
+      search_q <= search_stack(search_sp*STACK_WORDS+search_index/STACK_LANES);
+      if state=SEARCH_SAVE and phase=0 and search_index mod STACK_LANES=0 then
+        for lane in 0 to STACK_LANES-1 loop
+          stack_write_word(lane*4+3 downto lane*4):=b((search_index/STACK_LANES)*STACK_LANES+lane);
+        end loop;
+        search_stack(search_sp*STACK_WORDS+search_index/STACK_LANES)<=stack_write_word;
       end if;
       if rx_we='1' then rx(rx_address)<=rx_data; end if;
     end if;
@@ -378,13 +395,14 @@ begin
     variable tactical,consider_move : boolean;
     variable packed_move : std_logic_vector(15 downto 0);
     variable order_score,mg,eg,ph,file_index,white_bonus,black_bonus,remaining_depth,remaining_q : integer;
+    variable pawn_mg_sum,pawn_eg_sum : integer;
     variable white_passed,black_passed,repeated : boolean;
     variable next_hash : hash_t;
     variable picked : std_logic_vector(31 downto 0);
     variable picked_index : natural range 0 to SEARCH_MOVES-1;
     variable cache_word : std_logic_vector(127 downto 0);
     variable destination_mask : std_logic_vector(63 downto 0);
-    variable next_destination : natural range 0 to 64;
+    variable next_destination,next_source : natural range 0 to 64;
   begin
     if rising_edge(clk) then
       response_done<='0'; candidate_we<='0'; queue_we<='0'; cache_we<='0'; history_we<='0';
@@ -870,42 +888,48 @@ begin
               node_hash(search_sp)<=next_hash; eval_file<=0; state<=EVAL_PAWNS;
             else search_index<=search_index+1; end if;
           when EVAL_PAWNS=>
-            n:=eval_file; mg:=0; eg:=0; white_bonus:=0; black_bonus:=0;
-            white_passed:=eval_white_pawns(n)>0; black_passed:=eval_black_pawns(n)>0;
-            if eval_black_pawns(n)>0 and eval_black_max(n)>eval_white_max(n) then white_passed:=false; end if;
-            if eval_white_pawns(n)>0 and eval_white_min(n)<eval_black_min(n) then black_passed:=false; end if;
-            if n>0 then
-              white_bonus:=white_bonus+eval_white_pawns(n-1); black_bonus:=black_bonus+eval_black_pawns(n-1);
-              if eval_black_pawns(n-1)>0 and eval_black_max(n-1)>eval_white_max(n) then white_passed:=false; end if;
-              if eval_white_pawns(n-1)>0 and eval_white_min(n-1)<eval_black_min(n) then black_passed:=false; end if;
-            end if;
-            if n<7 then
-              white_bonus:=white_bonus+eval_white_pawns(n+1); black_bonus:=black_bonus+eval_black_pawns(n+1);
-              if eval_black_pawns(n+1)>0 and eval_black_max(n+1)>eval_white_max(n) then white_passed:=false; end if;
-              if eval_white_pawns(n+1)>0 and eval_white_min(n+1)<eval_black_min(n) then black_passed:=false; end if;
-            end if;
-            if white_bonus=0 then mg:=mg-eval_white_pawns(n)*12; eg:=eg-eval_white_pawns(n)*18; end if;
-            if black_bonus=0 then mg:=mg+eval_black_pawns(n)*12; eg:=eg+eval_black_pawns(n)*18; end if;
-            if eval_white_pawns(n)>1 then mg:=mg-(eval_white_pawns(n)-1)*14; eg:=eg-(eval_white_pawns(n)-1)*20; end if;
-            if eval_black_pawns(n)>1 then mg:=mg+(eval_black_pawns(n)-1)*14; eg:=eg+(eval_black_pawns(n)-1)*20; end if;
-            if white_passed then k:=eval_white_max(n); mg:=mg+k*k*3; eg:=eg+k*k*8; end if;
-            if black_passed then k:=7-eval_black_min(n); mg:=mg-k*k*3; eg:=eg-k*k*8; end if;
-            if eval_white_pawns(n)=0 then
-              mg:=mg+eval_white_rooks(n)*14;
-              if abs(n-active_wk mod 8)<=1 then mg:=mg-12; end if;
-            end if;
-            if eval_black_pawns(n)=0 then
-              mg:=mg-eval_black_rooks(n)*14;
-              if abs(n-active_bk mod 8)<=1 then mg:=mg+12; end if;
-            end if;
-            if eval_white_pawns(n)=0 and eval_black_pawns(n)=0 then mg:=mg+(eval_white_rooks(n)-eval_black_rooks(n))*12; end if;
-            if n=0 then
-              if eval_white_bishops>=2 then mg:=mg+28; eg:=eg+40; end if;
-              if eval_black_bishops>=2 then mg:=mg-28; eg:=eg-40; end if;
-            end if;
-            eval_mg<=eval_mg+mg*to_integer(unsigned(policy(13)))/16;
-            eval_eg<=eval_eg+eg*to_integer(unsigned(policy(13)))/16;
-            if eval_file=7 then state<=EVAL_BLEND; else eval_file<=eval_file+1; end if;
+            pawn_mg_sum:=0; pawn_eg_sum:=0;
+            -- Each lane has independent file arithmetic. Weight and round
+            -- each file before summing, preserving the one-lane score exactly.
+            for lane in 0 to PAWN_LANES-1 loop
+              n:=eval_file+lane; mg:=0; eg:=0; white_bonus:=0; black_bonus:=0;
+              white_passed:=eval_white_pawns(n)>0; black_passed:=eval_black_pawns(n)>0;
+              if eval_black_pawns(n)>0 and eval_black_max(n)>eval_white_max(n) then white_passed:=false; end if;
+              if eval_white_pawns(n)>0 and eval_white_min(n)<eval_black_min(n) then black_passed:=false; end if;
+              if n>0 then
+                white_bonus:=white_bonus+eval_white_pawns(n-1); black_bonus:=black_bonus+eval_black_pawns(n-1);
+                if eval_black_pawns(n-1)>0 and eval_black_max(n-1)>eval_white_max(n) then white_passed:=false; end if;
+                if eval_white_pawns(n-1)>0 and eval_white_min(n-1)<eval_black_min(n) then black_passed:=false; end if;
+              end if;
+              if n<7 then
+                white_bonus:=white_bonus+eval_white_pawns(n+1); black_bonus:=black_bonus+eval_black_pawns(n+1);
+                if eval_black_pawns(n+1)>0 and eval_black_max(n+1)>eval_white_max(n) then white_passed:=false; end if;
+                if eval_white_pawns(n+1)>0 and eval_white_min(n+1)<eval_black_min(n) then black_passed:=false; end if;
+              end if;
+              if white_bonus=0 then mg:=mg-eval_white_pawns(n)*12; eg:=eg-eval_white_pawns(n)*18; end if;
+              if black_bonus=0 then mg:=mg+eval_black_pawns(n)*12; eg:=eg+eval_black_pawns(n)*18; end if;
+              if eval_white_pawns(n)>1 then mg:=mg-(eval_white_pawns(n)-1)*14; eg:=eg-(eval_white_pawns(n)-1)*20; end if;
+              if eval_black_pawns(n)>1 then mg:=mg+(eval_black_pawns(n)-1)*14; eg:=eg+(eval_black_pawns(n)-1)*20; end if;
+              if white_passed then k:=eval_white_max(n); mg:=mg+k*k*3; eg:=eg+k*k*8; end if;
+              if black_passed then k:=7-eval_black_min(n); mg:=mg-k*k*3; eg:=eg-k*k*8; end if;
+              if eval_white_pawns(n)=0 then
+                mg:=mg+eval_white_rooks(n)*14;
+                if abs(n-active_wk mod 8)<=1 then mg:=mg-12; end if;
+              end if;
+              if eval_black_pawns(n)=0 then
+                mg:=mg-eval_black_rooks(n)*14;
+                if abs(n-active_bk mod 8)<=1 then mg:=mg+12; end if;
+              end if;
+              if eval_white_pawns(n)=0 and eval_black_pawns(n)=0 then mg:=mg+(eval_white_rooks(n)-eval_black_rooks(n))*12; end if;
+              if n=0 then
+                if eval_white_bishops>=2 then mg:=mg+28; eg:=eg+40; end if;
+                if eval_black_bishops>=2 then mg:=mg-28; eg:=eg-40; end if;
+              end if;
+              pawn_mg_sum:=pawn_mg_sum+mg*to_integer(unsigned(policy(13)))/16;
+              pawn_eg_sum:=pawn_eg_sum+eg*to_integer(unsigned(policy(13)))/16;
+              end loop;
+            eval_mg<=eval_mg+pawn_mg_sum; eval_eg<=eval_eg+pawn_eg_sum;
+            if eval_file=8-PAWN_LANES then state<=EVAL_BLEND; else eval_file<=eval_file+PAWN_LANES; end if;
           when EVAL_BLEND=>
             ph:=eval_phase; if ph>24 then ph:=24; end if;
             eval_blend_mg<=eval_mg*ph; eval_blend_eg<=eval_eg*(24-ph); state<=EVAL_DONE;
@@ -977,11 +1001,13 @@ begin
             state<=PICK;
           when SEARCH_RECALL_WAIT=>state<=SEARCH_RECALL_COPY;
           when SEARCH_RECALL_COPY=>
-            b(search_index)<=search_q;
-            if search_index=63 then
+            for lane in 0 to STACK_LANES-1 loop
+              b(search_index+lane)<=search_q(lane*4+3 downto lane*4);
+            end loop;
+            if search_index=64-STACK_LANES then
               if search_returning='1' then state<=SEARCH_ACCEPT;
               else state<=ADVANCE; end if;
-            else search_index<=search_index+1; state<=SEARCH_RECALL_WAIT; end if;
+            else search_index<=search_index+STACK_LANES; state<=SEARCH_RECALL_WAIT; end if;
           when SEARCH_ACCEPT=>
             score:=node_best(search_sp);
             if active_turn=turn then
@@ -1120,9 +1146,19 @@ begin
               end if;
               if next_destination=64 then
                 dst<=0;
-                if src=63 then
+                -- All 64 source eligibility bits are decoded concurrently.
+                -- Pick the next occupied friendly square rather than visiting
+                -- each empty/enemy square through two controller states.
+                next_source:=64;
+                if FAST_SOURCES then
+                  for i in 63 downto 0 loop
+                    if i>src and source_available(i)='1' then next_source:=i; end if;
+                  end loop;
+                elsif src<63 then next_source:=src+1;
+                end if;
+                if next_source=64 then
                   if search_active='1' then state<=NODE_READY; else state<=FINISH; end if;
-                else src<=src+1; state<=PICK; end if;
+                else src<=next_source; state<=PICK; end if;
               else dst<=next_destination; state<=PICK; end if;
             end if;
           when FINISH=>
