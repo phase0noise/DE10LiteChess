@@ -1,179 +1,150 @@
-# Port and engine-console validation — October 24, 2026
+# Engine advancement validation - October 24, 2026
 
-The project includes its own FPGA sources, Pico firmware, artwork, web assets,
-and test/build scripts. Quartus and Arduino builds run from this project folder.
-`tools/check_project.py` checks that every QSF source is inside the project and
-that all firmware/browser assets are present. It also checks the staged ZIP.
+The current engine combines eight-ply capability, root ordering/PVS, four
+material/hash lanes, four move-queue banks, positional terms, capture exchange
+ordering, measured phase telemetry and a PLL clock. [ADVANCED_ENGINE.md](ADVANCED_ENGINE.md)
+describes the implemented datapath. [build-results.txt](build-results.txt)
+records the qualified image's frequency, resources and all-corner slack.
 
-## Functional results
+The FPGA build passes all timing gates at **75 MHz**, using 39,982 logic
+elements (80%) and 133 M9Ks (73%). Worst setup is **+2.293 ns**; minimum hold
+is **+0.113 ns**. The PLL increases the internal clock by 50% from the original
+50 MHz design. Physical-board acceptance remains separate below.
 
-The engine-console release passed `tools/verify.ps1 -Browser` and the Pico
-build. The later parallel-datapath update passes the Quartus timing gate,
-the 147-position root legality checks, a final `tools/verify.ps1 -Positions 0`
-run, and the native UART/special-rule checks. Web/Pico sources are unchanged
-in that later update. The longer twelve-position strength benchmark below
-is retained as an explicitly dated October 22 measurement.
+## Functional checks
 
-- **Parallel datapath:** the reference uses one stack lane, sequential source
-  scanning and one pawn-file lane. The new version uses eight stack lanes,
-  a parallel source mask and two pawn-file arithmetic lanes. Cached three-ply
-  fork/promotion searches preserve all 18 scores, both selected moves, node
-  counts and cache matches while reducing cycles from **3,582,792** to
-  **1,533,784** (**57.19% fewer; 2.336x throughput** on these fixtures). The
-  intermediate variants isolate the contribution of each change. Random root
-  preferences and field relaxation are disabled in these comparisons.
-- **Parallel special-move search:** all 19 independent rule positions are
-  searched to depth 2, including castling, en passant, pinned pieces, promotion,
-  checkmate/stalemate and insufficient material. Reference and parallel variants
-  preserve all **237** candidate scores and all selected moves, node counts and
-  cache matches in the 17 positions with legal moves. Existing tactical,
-  cache on/off, deadline, depth-six and guarded-commit checks also pass.
-  [parallel-results.json](parallel-results.json) records the staged comparison.
-- **Parallel fit:** 30,949 logic elements (62%), 917,128 memory bits and 125 M9Ks.
-  The stack packs 96 x 32 bits into one M9K. There are 45 nine-bit multiplier
-  elements in use. All operating-condition timing checks pass, including
-  2.093 ns slow-corner setup slack and 0.071 ns fast-corner hold slack.
+The core checks completed with eight generated game positions supplementing
+nineteen explicit rule positions, for 27 independent root fixtures. The run
+used `tools/verify.ps1 -Positions 8 -Browser -Strength`; its optional long mate
+benchmark was stopped after two completed cases at the user's request, before
+the final browser step. This is not a claim that the entire command completed.
+Completed core checks cover:
 
-- **Earlier destination scan comparison (`8e713ca`):** cached three-ply searches with random root
-  preferences disabled preserve all **18** candidate scores, both selected
-  moves, node counts and cache-match counts. The reach-map scanner takes
-  **3,582,792** cycles versus **4,503,888** for the original walk, **20.45% fewer**
-  on the fork/promotion fixtures. Both use the same evaluator, depth and cache.
-  [destination-results.json](destination-results.json) records the measurements.
-- **October 24 browser checks:** desktop and 390 px touch interaction, themes,
-  dragging, promotion/cancellation, captured values, material balance, engine
-  candidates, field snapshot and score breakdown pass. Pass-and-play moves
-  both colors with an explicitly disconnected mock endpoint and does not search.
-  Self-play alternates sides, pauses between turns, cancels an active search,
-  restores paused and undoes one ply. A nearly expired restored speed clock
-  invokes Spatial (depth 0), then the opponent's selected depth 3. Its assisted
-  move marker persists, and the paused clock does not decrease. Node checks
-  also cover en passant and capture-promotion accounting and undo.
-  Final browser checks also cover timeout during a promotion dialog and a fresh
-  opponent reply after stopping a normal search and undoing. The final native
-  byte decoder passes UART and 19 special-rule positions, including every
-  explanation-record boundary.
+- Browser rules and wired RTL legal/attack sets against python-chess, including
+  castling, en passant, pinned pieces, all promotions, mate/stalemate and draws.
+  The simulation-only attack model agrees with the wired fabric on all 64
+  source squares of those positions before it is used for long searches.
+- Ten three-ply tactical fixtures on both colors, including mate over material,
+  poisoned capture, royal forks, an en-passant reply and promotion. Selected
+  moves undergo commit/readback and stale-generation rejection.
+- Cache enabled/disabled, narrow/wide stack, source scan and pawn-file
+  comparisons. Datapath comparisons preserve candidate values, selected moves,
+  node counts and cache matches; search-order comparisons validate exact best
+  values and bounds instead of requiring identical node counts.
+- Four evaluation lanes against one lane; root PVS against a full-window
+  reference; four queue banks against one queue entry at a time. The controlled
+  fork/promotion comparison disables new positional terms and exchange ordering
+  to isolate these changes. Nineteen special-rule searches also compare
+  full-window values with PVS bounds while those features are enabled.
+- Independent replay of captured continuation prefixes. The selected root value
+  must be exact, with matching completed-depth metadata; losing scouts are
+  checked as valid upper bounds. Seven 48-bit phase counters sum to the
+  coherent decision-cycle snapshot.
+- Budget expiry before the first iteration completes and during a later one.
+  The published legal set, explanations, selected value and guarded promotion
+  commit remain complete. The test clock is scaled to exercise deadlines;
+  board time uses the reported PLL frequency.
+- Completed depth eight on both forced-draw fixtures and a live pawn ending
+  (`8/8/8/8/8/2k5/P7/K7 w - - 0 1`) that actually visits at least eight plies.
+  This tests real stack traversal rather than only terminal positions.
+- All fourteen move-queue levels and four banks, cache/history endpoints and
+  all 1,024 banked Zobrist keys against the scalar key port.
+- The actual reciprocal helper against integer division: both range limits,
+  all residue classes and deterministic samples across its 21-bit input range.
+  Signed score comparisons cover both colors. All eighteen Spatial candidate
+  scores, including the recurrent field and native-time noise, agree before
+  and after the timing pipeline changes.
+- Exchange analysis for poisoned captures, x-ray recaptures, both colors,
+  en passant, promotion, defended king recapture and cancellation. Read,
+  arithmetic and write stages use native clocks.
+- Native UART framing/CRC, malformed/partial/oversize requests, retry tokens,
+  policy validation/readback, protocol-5 status/telemetry and guarded commit.
+  The actual Pico C++ parser passes corruption, resynchronization and frame
+  sizes through 1,024 reply bytes.
+- Browser protocol 3/4 compatibility, protocol-5 capabilities/bounds, legal
+  continuation checks, 48-bit counters beyond 2^32, clock conversion, unknown
+  version rejection and failure before commit on inconsistent device data.
 
-- Browser rules match **147 independently generated python-chess positions**:
-  complete legal sets, SAN, every resulting FEN, position bytes, check status,
-  and insufficient material. Start-position perft: 20 / 400 / 8902; Kiwipete:
-  48 / 2039. Repetition, en-passant repetition keys, intended-move draw claims,
-  and undo are covered.
-- The production wired VHDL engine matches all **147** independent legal sets and attack
-  maps, including castling, en passant, underpromotion, checkmate and stalemate.
-  Candidate explanation sums, configuration/routing RAM, both policy pages,
-  response LUT, local bias and cold-start field state also pass.
-- **10 three-ply tactical fixtures** pass on both colors: mate over material,
-  poisoned capture, royal fork, an opponent's en-passant reply and promotion.
-  Expected best moves also check committed board/rights/EP/turn and stale commit
-  rejection. These tests also pass on the expanded engine with its 4,096-entry
-  cache and quiescence enabled.
-- **October 22 strength baseline, not rerun for this release:** 12 independently
-  proven mate-in-three positions pass with five normal
-  plies: the expanded engine selects a winning first move on **12/12**, versus
-  **2/12** for the previous three-ply engine at commit `2963b12`. Each position
-  is proven unwinnable in three plies and forceable in five by enumerating every
-  defender reply with python-chess. The six king/queen endings are mirrored for
-  both colors, including a position with one winning first move. Capture
-  extensions are disabled in this benchmark to isolate deeper normal search;
-  a five-ply case also passes with the default four extension plies. Baseline
-  RTL hashes were checked against that commit. Detailed choices, positions,
-  nodes and cycles are in [strength-results.json](strength-results.json).
-  This focused tactical comparison does not establish an Elo rating.
-- **October 22 cache enabled/disabled comparison** preserves all 18 root candidate scores
-  and selected moves across fork and promotion positions, with random root
-  preferences disabled. The cached searches use 4,503,888 decision cycles versus
-  5,766,764 without the cache, about 22% fewer cycles on these two fixtures.
-  The October 24 cache on/off comparison also passes with the new scanner.
-- **Budget expiry** passes before the first iteration finishes and during the
-  next iteration. The parallel build retains the complete seven-move promotion
-  candidate set from depth 2 for the earliest expiry and depth 3 for the later
-  expiry. Both retain matching explanations, preserve the factual position,
-  and pass guarded queen-promotion commit/readback and stale-commit rejection.
-  The simulated clock is scaled to exercise deadlines quickly; the FPGA build
-  uses 50 MHz. A requested depth of 6 reports the last completed depth correctly.
-- **Completed depth 6** also passes on both colors of an independently checked
-  position with one forced capture leading to insufficient material. All
-  iterative depths finish, and guarded commit produces the expected drawn board.
-- **Search RAM tests** cover all 12 move-queue levels, cache/history endpoints,
-  initial zero contents, color/square hash separation and side/rights/EP salts.
-  The simulation-only attack model agrees with the production wired fabric on
-  all 64 source squares in all 147 independent positions. Long search tests
-  use that model with the production controller, evaluator and memory RTL.
-- The **UART bridge** passes VHDL simulation: status framing and CRC,
-  duplicate mutation retries, corrupt/truncated/oversize/framing-error requests,
-  recovery, maximum-length configuration, complete opening legal-set readback,
-  hardware selection, position commit and stale commit rejection. Expanded
-  policy upload/readback, rejected depth/time/quiescence/cache values, and the
-  complete 20-byte search telemetry frame pass as well.
-- The actual **Pico C++ packet parser** passes native tests for the standard
-  CCITT-FALSE check vector, frame sizes through 1024 reply bytes, corruption,
-  malformed lengths, noise and resynchronization.
-- Browser transport tests verify legal-set/board mismatches prevent commit,
-  cancellation, explicit disconnected-hardware errors, depth 6 and budget
-  controls, expanded telemetry, and a clear upgrade error for deeper requests
-  sent to protocol 3 hardware.
-- **Chrome desktop and 390 px mobile** checks pass: connection, selection,
-  legal destinations, human move, an explicitly simulated FPGA reply, history,
-  undo, flipping and reload. The October 22 UI update also passes persisted
-  light/dark themes, mouse and touch dragging, illegal/off-board/cancelled drops,
-  dragging on a flipped board, promotion selection/cancellation, blocked page
-  scrolling over the board, and working page scrolling outside it. Screenshots
-  were inspected, including the new five-ply/ten-second controls and completed
-  depth/cache counters. This UI test uses a simulated protocol endpoint and does not
-  establish physical FPGA operation or acceptance on an actual phone.
+An earlier Chrome desktop and 390 px touch run passed gestures, themes,
+promotions, captures/points/material, console phase profile/bounds/continuation,
+offline pass-and-play, self-play pause/resume, undo/reload and Spatial auto-play
+on speed-round expiry, including an open promotion dialog. It used an explicitly
+simulated endpoint before the final 48-bit wire-layout changes. The final
+protocol changes passed the Node checks listed above; a fresh full browser run
+was not performed. These establish client behavior separately from physical
+FPGA/Wi-Fi operation. Tools are GHDL 6.0.0, python-chess 1.11.2, Node.js 22.18.0,
+GCC 7.4.0 and Chrome.
 
-Tools: GHDL 6.0.0; python-chess 1.11.2; Node.js 22.18.0; GCC 7.4.0; Chrome.
+## Measurements and their scope
 
-## Build results
+[advancement-results.json](advancement-results.json) records scalar, lane,
+root-PVS and queue comparisons, exact values, valid bounds and legally replayed
+prefixes. Its cycle totals describe the stated deterministic fixtures and
+settings, rather than whole-game throughput or an Elo gain. Native-clock
+pipeline fixes trade a few extra arithmetic enables and exchange clocks for
+shorter paths; fitted frequency and total cycles must be considered together.
 
-Final build measurements are included in `build-results.txt` alongside this
-document. Quartus Prime Lite 23.1 targets the actual **10M50DAF484C7G** and uses
-MAX 10 M9K memory inference. `build_fpga.ps1` requires nonnegative setup, hold,
-recovery and removal slack across all available operating conditions and zero
-unconstrained clocks/input/output ports. Asynchronous inputs are excluded only
-at the reset input and the first sampling registers; display/UART outputs have
-no synchronous external receiver.
+| Controlled configuration | Decision cycles | Search nodes |
+| --- | ---: | ---: |
+| One evaluation lane, full root windows, scalar queue | 1,573,992 | 1,436 |
+| Four evaluation/hash lanes | 1,298,280 | 1,436 |
+| Plus root ordering and PVS | 345,508 | 488 |
+| Plus four-bank move selection | 276,828 | 488 |
 
-The Pico W firmware compiles with Arduino-Pico **6.0.0**, **133 MHz**, at
-**499,620 bytes (23% flash)** and **76,408 bytes (29% RAM)**. The generated header contains the entire webpage
-and artwork. There are no CDN or internet requests during play.
+That is 82.4% fewer cycles (5.69x) for these two fixtures. Lane widening
+preserves every exact candidate score; PVS preserves the best value and
+publishes valid bounds. Queue banking preserves the PVS choices, bounds and
+node counts. Against the pre-pipeline arithmetic, each configuration keeps
+its scores/nodes and adds exactly sixteen clocks per evaluated node. The
+separate Spatial comparison also preserves its eighteen scores with field
+and native-time noise enabled.
 
-The expanded FPGA fits in **30,949 / 49,760 logic elements (62%)** and
-**917,128 / 1,677,312 memory bits (55%)**. The previous build used 19,753 logic
-elements (40%) and 46,728 memory bits (3%). The new M9K allocations include the
-position cache, move queues, history, key ROM and doubled candidate-result RAM.
-Physical block use is **125 / 182 M9Ks (69%)**; the difference from the memory
-bit percentage reflects width/depth packing.
+The five-ply mate regression independently proves all winning first moves by
+enumerating every defender reply. Quiescence is disabled to isolate normal
+lookahead. [advanced-strength-results.json](advanced-strength-results.json)
+records the two completed cases out of twelve, one for each color; both chose
+an independently proven winning move. The remaining optional cases were not
+completed. The historical [strength-results.json](strength-results.json)
+records an October 22 baseline of 12/12 for the then-expanded engine versus
+2/12 for its three-ply predecessor. No paired-game Elo or equal-time win-rate
+measurement has been performed.
 
-The Wi-Fi startup now matches the oscilloscope reference's `WiFi.softAP(...)`
-call, without forcing AP mode or a static address. The installed core's default
-AP address is `192.168.4.1`, also printed on USB serial. Removing the phone's
-offline-network confirmation has not been established on physical hardware;
-the reference has no special internet-validation handling either.
+Historical [parallel-results.json](parallel-results.json) retains the first
+50 MHz parallel release's 3,582,792 to 1,533,784 cycle reduction on two fixtures
+(2.336x). [destination-results.json](destination-results.json) retains its older
+20.45% destination-scan reduction. Those records use earlier evaluators and
+workloads; they are not current timing/resource figures, and their speedups
+should not be multiplied into the new comparison.
 
-`output_files/build_manifest.json` records SHA-256 fingerprints for all release
-sources and all three programming images (SOF, POF, and UF2). The portable ZIP
-contains those sources and images; compiler databases, temporary files and test
-dependencies are omitted.
+## Builds and distribution
+
+Quartus Prime Lite 23.1std.1 targets the actual 10M50DAF484C7G. The build script
+uses an isolated source snapshot and checks setup, hold, recovery and removal
+at every available operating condition, plus unconstrained clocks and external
+ports. It exports global, native-source and native-endpoint critical paths.
+Only a passing build whose input hashes still match the source is copied to
+`output_files`; failed candidates stay in `.cache`.
+
+The Pico W image uses Arduino-Pico 6.0.0 at 133 MHz: 506,292 program bytes
+(24%) and 76,408 global RAM bytes (29%). Page, scripts and artwork are embedded
+in flash, with no CDN requests. The matching protocol-5 FPGA and Pico images
+must be loaded together. `build_manifest.json` records SHA-256 fingerprints
+for release sources and SOF/POF/UF2. The ZIP includes the same portable project
+and excludes compiler databases and local dependencies.
 
 ## Physical-board acceptance
 
-No board has been programmed by this task. Physical UART/Wi-Fi gameplay,
-power-cycle behavior and radio reliability remain to be checked on your boards.
-Compilation, simulations, and browser tests are recorded separately above.
+This task has not programmed either board. The new clock/image still needs
+physical UART/Wi-Fi play, power-cycle and actual-phone acceptance. Routed timing,
+simulation and browser results above are separate measurements.
 
-For the first hardware check:
-
-1. Load both matching images and connect the three wires listed in README.md.
-2. Join **FPGA-Chess** and open **http://192.168.4.1/**, or the address printed
-   on USB serial. Confirm **FPGA connected**.
-3. Play as white, make a move and wait for the FPGA reply. The browser compares
-   the complete legal set and both position readbacks before accepting the reply.
-4. Start a game as black and verify that the FPGA plays white first. Check
-   undo, stop/resume, promotion when reached, and reconnect after KEY0 reset.
-5. Power cycle each board, reload the FPGA SOF, and repeat the connection check.
-6. In Speed round, let the human timer expire and confirm the Spatial move,
-   followed by the normal FPGA reply. Check pause/resume and promotion timeout.
-7. In FPGA vs FPGA, let both sides move, pause during/between searches, then
-   reload and resume. Check captures and the console on the actual phone.
+1. Load both matching images and connect the three UART wires from README.md.
+2. Join `FPGA-Chess`, open `http://192.168.4.1/` (or the USB-printed address),
+   confirm connection and check that the console reports the qualified clock.
+3. Play both colors; check reply/commit, undo, stop/resume, promotion and KEY0
+   reconnect. The browser checks the full legal set and position readbacks.
+4. Let a speed-round timer expire, including during promotion, and confirm a
+   Spatial move followed by the opponent's selected search mode.
+5. Run FPGA vs FPGA, pause during/between searches, reload and resume. Check
+   captures, phase counters and continuation on the actual phone.
+6. Power-cycle both boards, reload the volatile FPGA SOF, then reconnect/play.

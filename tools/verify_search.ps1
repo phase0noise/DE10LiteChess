@@ -17,7 +17,7 @@ try {
     & $Python tests/generate_search.py
     if ($LASTEXITCODE -ne 0) { throw 'Tactical fixtures failed.' }
     $sources = @('rtl/chess_pkg.vhd','rtl/chess_cell_memory.vhd','rtl/chess_spatial.vhd',
-        'sim/chess_spatial_fast.vhd','rtl/chess_search_memory.vhd','rtl/chess_engine.vhd',
+        'sim/chess_spatial_fast.vhd','rtl/chess_search_memory.vhd','rtl/chess_see.vhd','rtl/chess_engine.vhd',
         'sim/tb_chess_engine.vhd','sim/tb_chess_spatial.vhd')
     & $Ghdl -a --std=08 --workdir=.cache/ghdl-search @sources
     if ($LASTEXITCODE -ne 0) { throw 'Search model analysis failed.' }
@@ -31,7 +31,7 @@ try {
     @($tactics[4], $tactics[8]) | Set-Content .cache/cache_vectors.txt
     foreach ($cache in @(1,0)) {
         $log = ".cache/cache-$cache.log"
-        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/cache_vectors.txt' -gSEARCH_DEPTH=3 -gCLOCK_DIVIDE=4 -gDETERMINISTIC=true "-gCACHE_ENABLE=$cache" --assert-level=error *> $log
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/cache_vectors.txt' -gSEARCH_DEPTH=3 -gCLOCK_DIVIDE=4 -gDETERMINISTIC=true -gROOT_PVS=false -gROOT_ORDERING=false "-gCACHE_ENABLE=$cache" --assert-level=error *> $log
         if ($LASTEXITCODE -ne 0) { Get-Content $log -Tail 20; throw 'Cache regression failed.' }
     }
     & $Python tests/check_cache.py .cache/cache-1.log .cache/cache-0.log
@@ -61,14 +61,27 @@ try {
     & $Python tests/check_parallel.py .cache/parallel-8-true-2.log .cache/parallel-1-false-1.log --wide-only .cache/parallel-8-false-1.log --source-mask .cache/parallel-8-true-1.log --special-parallel .cache/parallel-special-false.log --special-reference .cache/parallel-special-true.log
     if ($LASTEXITCODE -ne 0) { throw 'Parallel datapath comparison failed.' }
     $tactics[8] | Set-Content .cache/budget_vectors.txt
-    foreach ($budgetClock in @(10000,400000)) {
-        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/budget_vectors.txt' -gSEARCH_DEPTH=6 -gCLOCK_DIVIDE=4 -gBUDGET_SECONDS=1 "-gTEST_CLOCK_HZ=$budgetClock" -gEXPECT_TIMEOUT=true --assert-level=error
+    foreach ($budgetClock in @(10000,200000)) {
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/budget_vectors.txt' -gSEARCH_DEPTH=8 -gCLOCK_DIVIDE=4 -gBUDGET_SECONDS=1 "-gTEST_CLOCK_HZ=$budgetClock" -gEXPECT_TIMEOUT=true --assert-level=error
         if ($LASTEXITCODE -ne 0) { throw 'Completed-iteration budget/commit regression failed.' }
     }
     & $Python tests/generate_depth.py
     if ($LASTEXITCODE -ne 0) { throw 'Depth boundary fixtures failed.' }
-    & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/depth_vectors.txt' -gSEARCH_DEPTH=6 -gCLOCK_DIVIDE=4 --assert-level=error
-    if ($LASTEXITCODE -ne 0) { throw 'Depth-six/insufficient-material regression failed.' }
+    & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/depth_vectors.txt' -gSEARCH_DEPTH=8 -gCLOCK_DIVIDE=4 --assert-level=error
+    if ($LASTEXITCODE -ne 0) { throw 'Depth-eight/insufficient-material regression failed.' }
+    & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/depth_live_vectors.txt' -gSEARCH_DEPTH=8 -gQUIESCENCE=0 -gEXPECT_MIN_PLY=8 -gDETERMINISTIC=true --assert-level=error *> .cache/depth-live.log
+    if ($LASTEXITCODE -ne 0) { Get-Content .cache/depth-live.log -Tail 16; throw 'Live depth-eight stack regression failed.' }
+    foreach ($variant in @(@('scalar',1,'false',1),@('lanes',4,'false',1),@('pvs',4,'true',1),@('queue',4,'true',4))) {
+        $name=$variant[0];$evalLanes=$variant[1];$pvs=$variant[2];$queueLanes=$variant[3]
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/cache_vectors.txt' -gSEARCH_DEPTH=3 -gDETERMINISTIC=true -gCHECK_TACTICS=false -gPOSITION_TERMS=false -gSEE_ORDERING=false "-gEVAL_LANES=$evalLanes" "-gROOT_PVS=$pvs" "-gROOT_ORDERING=$pvs" "-gQUEUE_LANES=$queueLanes" --assert-level=error *> ".cache/advance-$name.log"
+        if ($LASTEXITCODE -ne 0) { Get-Content ".cache/advance-$name.log" -Tail 16; throw 'Advanced pipeline/search comparison failed.' }
+    }
+    foreach ($pvs in @('false','true')) {
+        & $Ghdl -r --std=08 --workdir=.cache/ghdl-search tb_chess_engine '-gVECTOR_FILE=.cache/chess_vectors.txt' -gSEARCH_DEPTH=2 -gQUIESCENCE=0 -gPOSITION_COUNT=19 -gDETERMINISTIC=true -gCHECK_TACTICS=false "-gROOT_PVS=$pvs" "-gROOT_ORDERING=$pvs" --assert-level=error *> ".cache/advance-bounds-$pvs.log"
+        if ($LASTEXITCODE -ne 0) { Get-Content ".cache/advance-bounds-$pvs.log" -Tail 16; throw 'Special-rule PVS bounds regression failed.' }
+    }
+    & $Python tests/check_advancement.py --scalar .cache/advance-scalar.log --parallel .cache/advance-lanes.log --pvs .cache/advance-pvs.log --queue .cache/advance-queue.log --special-reference .cache/advance-bounds-false.log --special-pvs .cache/advance-bounds-true.log
+    if ($LASTEXITCODE -ne 0) { throw 'PVS value/bound/continuation verification failed.' }
     if ($Strength) {
         & $Python tests/generate_strength.py
         if ($LASTEXITCODE -ne 0) { throw 'Independent mate proofs failed.' }

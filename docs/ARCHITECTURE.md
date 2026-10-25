@@ -14,7 +14,8 @@ choose a move. The browser, Pico W and FPGA each handle one of those jobs.
 | FPGA engine | Legal move generation, speculative moves, evaluation, search, recurrent field, move selection and telemetry | `rtl/chess_engine.vhd` |
 | Spatial fabric | Concurrent White attacks, Black attacks and selected-source reachability | `rtl/chess_spatial.vhd` |
 | FPGA memory | Search tables and recurrent cell/policy storage in M9K RAM | `rtl/chess_search_memory.vhd`, `chess_cell_memory.vhd` |
-| Board wrapper | 50 MHz clock, reset/key synchronization, UART pin connections, LEDs and seven-segment display | `rtl/de10_chess.vhd` |
+| Exchange analyzer | Bounded least-attacker swap-off analysis for capture ordering | `rtl/chess_see.vhd` |
+| Board wrapper | PLL from the 50 MHz reference, reset/key synchronization, UART pins, LEDs and seven-segment display | `rtl/de10_chess.vhd`, `chess_clock.vhd` |
 
 No internet server is involved during play. The page, scripts and piece artwork
 are embedded in Pico flash by `web/embed_web.ps1`. The phone sends compact chess
@@ -43,7 +44,7 @@ browser always receives a complete legal set.
 
 The browser compares the hardware's entire legal set with its own rules,
 checks that the loaded position still matches, and obtains the selected move's
-explanation. It then commits that exact move with a generation number. The
+explanation and legally replayed continuation. It then commits that exact move with a generation number. The
 FPGA rejects an obsolete generation or a different move. Finally the browser
 reads back the resulting board and updates the display.
 
@@ -64,22 +65,28 @@ The board stack now moves eight squares per 32-bit word. Restoring a branch
 takes 16 controller enables rather than 128. A parallel source mask skips
 ineligible source squares, and two pawn-file arithmetic lanes halve the
 eight-file evaluation pass. These changes speed work repeated at each node.
-The material/placement/hash scan still handles one square per enable; the
-proposed four-lane evaluator and its memory banks are described in
-[PARALLEL_ARCHITECTURE.md](PARALLEL_ARCHITECTURE.md).
+Four material/placement lanes and four matching hash-ROM banks process four
+squares per enable. Registered pair sums replace a long serial arithmetic
+chain. Four interleaved move-RAM banks feed pair and group comparators, so move
+selection also consumes four entries together. These are repeated operations
+inside one search, rather than separate engines playing independent games.
 
 The recurrent field contains 64 signed cell values. Shared arithmetic updates
 them using neighboring values, attack information, configured weights, local
 bias and pseudorandom input. This is a programmable recurrent circuit, not a
-trained neural network. In search mode its contribution is bounded so that
-material analysis and forced mates dominate it. Spatial mode uses the root
-scoring process without exploring the search tree.
+trained neural network. Spatial mode uses its root preference calculation
+without exploring the search tree. Search mode now uses consistent positional
+values without adding field, habit or random bonuses to the searched result.
+The console can still display the completed field snapshot in either mode.
 
 This division keeps the design within the MAX 10: parallel square-level
 geometry, a shared search/evaluation controller, and RAM for state. The native
-clock is 50 MHz; the controller's common enable occurs every four clocks.
-UART and memory ports use the native clock. Raising the clock or removing that
-enable would require redesigning the synchronous pipelines and timing constraints.
+clock comes from a PLL driven by the 50 MHz oscillator; the controller's common
+enable occurs every four internal clocks. UART, exchange analysis and memory
+ports use native clocks. Registered requests separate long controller decoding
+from short write/start strobes. The reported clock drives host time conversion
+and FPGA budgets. See [build-results.txt](build-results.txt) for the qualified
+frequency and [ADVANCED_ENGINE.md](ADVANCED_ENGINE.md) for the timing contract.
 
 ## Memory and reuse
 
@@ -91,8 +98,9 @@ quiescence allowance and stack allowance also participate in reuse decisions.
 An evaluation changes the epoch, so the cache reuses positions within that
 evaluation rather than carrying scored results across unrelated turns.
 
-Other RAM holds 12 board-stack levels, 12 move queues, quiet-move history,
-Zobrist hashing constants and two root-result banks. See [ENGINE.md](ENGINE.md)
+Other RAM holds 14 board-stack levels, 14 move queues, quiet-move history,
+Zobrist hashing constants, continuation prefixes and two root-result banks.
+See [ENGINE.md](ENGINE.md)
 for capacities, bounds and draw handling.
 
 ## The destination-scan improvement
@@ -118,7 +126,7 @@ the native-clock byte decoder and preserves the existing RAM read latency.
 | Display | Meaning |
 | --- | --- |
 | Pipeline strip | Host-observed upload, field/search polling, verification and commit stages |
-| FPGA decision time | FPGA cycle counter divided by 50 million, including field setup and all search iterations |
+| FPGA decision time | 48-bit cycle counter divided by the device-reported frequency; includes field setup and all search iterations |
 | Nodes | Visited search nodes, including earlier iterations and capture extensions |
 | Completed depth | Last fully published iteration; a larger requested depth may remain unfinished |
 | Nodes / FPGA second | Nodes divided by FPGA decision time; excludes HTTP verification/commit time |
@@ -127,8 +135,12 @@ the native-clock byte decoder and preserves the existing RAM read latency.
 | Cache writes | Entries stored during the evaluation |
 | Search trace | Cumulative node samples over the FPGA cycle counter; not a waveform or logic analyzer |
 | Spatial heatmap | Last completed field snapshot; orientation remains White at bottom when the main board flips |
-| Move preference | Hardware root ranking, not a probability or a calibrated centipawn evaluation |
-| Chosen move breakdown | Captures, safety, activity, field, habit, noise and search components from the selected result record |
+| Phase profile | Seven measured groups whose cycle counts sum to snapshot decision time |
+| Clock / lanes / visited ply | Actual device frequency, evaluator width and deepest visited tactical level |
+| Candidate score | Exact searched value or explicitly labeled score bound; Spatial mode uses preferences |
+| Continuation | Legally checked captured principal-variation prefix; cache cutoffs can shorten it |
+| Chosen move breakdown | Seven root components; search mode uses the searched value, with immediate-root king/mobility terms shown separately |
+| Cache answers / root re-searches / exchange calls | Cache cutoffs, full-window retries after promising scouts and capture-ordering analysis |
 
 Status is polled around every 120 ms, with search telemetry sampled around
 every 500 ms. UART and HTTP add latency. The final board and explanations are
@@ -149,23 +161,21 @@ The timer is paused while the FPGA works; the next human clock starts after
 the reply is verified. Reload restores speed/self-play paused. A backgrounded
 browser can delay a timeout callback until the page runs again.
 
-## Where more strength could come from
+## How the search changes help
 
-The current scanner reduces wasted work per node. That can let the engine
-finish more depth within a budget, but it is not an Elo claim. The most useful
-next experiments are:
+The previous completed best move is searched first at the next depth. Later
+root moves get a narrow scout window; only a move that might improve the best
+value needs a full-window re-search. Losing scouts are published as upper
+bounds, while the selected winner must be exact. This reduces unnecessary
+nodes without discarding the complete legal root set.
 
-1. Profile move generation, board restore and evaluation separately to find
-   which microsteps now consume the most decision cycles.
-2. Replace repeated move-queue selection scans with a more efficient ordering
-   structure, preserving early access to captures and cache hints.
-3. Explore principal-variation search at the root. Shared root bounds can prune
-   more work, but the current protocol promises complete scored candidates;
-   bounds would need to be identified or re-searched before publication.
-4. Consider persistent cache reuse with explicit policy and repetition context,
-   rather than simply dropping the epoch guard.
-5. Explore limited parallel work only after profiling and resource measurements.
-   Replicating the current full engine would multiply memory and logic costs.
+King-zone pressure and weighted per-piece mobility improve the information
+available at the horizon. Exchange analysis orders ambiguous defended
+captures, including newly exposed slider rays; it never prunes a move.
+Eight-ply normal search and four capture extensions can spend the hardware
+speed gain on longer continuations when the time budget permits. Requested
+depth does not promise that every position will finish that depth.
 
-These are design directions. Only changes described in the implementation and
-validation records should be treated as shipped features or measured gains.
+[ADVANCED_ENGINE.md](ADVANCED_ENGINE.md) describes the implemented pipeline.
+Controlled comparisons establish cycle savings and valid score bounds;
+equal-time games are still needed to measure playing strength.

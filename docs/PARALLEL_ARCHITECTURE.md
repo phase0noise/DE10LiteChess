@@ -1,137 +1,87 @@
-# Expanding the parallel datapath
+# Parallel datapath
 
-The goal is to reduce the controller steps repeated at every searched position.
-The recurrent field settles once per decision; speeding it up would remove
-little of a multi-second search. Board restore, move generation, evaluation,
-hashing and move ordering recur throughout the tree.
+The engine searches one speculative board at a time. Parallel hardware reduces
+repeated work inside each searched node, with RAM banks matched to arithmetic
+lanes. [ADVANCED_ENGINE.md](ADVANCED_ENGINE.md) describes the complete current
+pipeline, root scheduling and clock contract.
 
-## First stage: wide restore, concurrent source selection and paired arithmetic
-
-The speculative board already lives in registers, so several squares can be
-restored simultaneously. The stack now stores eight adjacent 4-bit pieces per
-32-bit RAM word. Each board is eight words, and twelve stack levels hold the
-same 3,072 logical bits as before.
-
-| Operation | Previous architecture | Implemented datapath |
+| Operation | Scalar reference | Production |
 | --- | --- | --- |
-| Stack layout | 768 words x 4 bits | 96 words x 32 bits |
-| Restore payload | One square | Eight squares, one rank |
-| Restore microsteps | 64 reads/writes x 2 = 128 enables | 8 reads/writes x 2 = 16 enables |
-| Restore time at current enable | 10.24 microseconds | 1.28 microseconds |
-| Eligible sources | Visit all squares through the controller | Decode all 64 squares concurrently; select the next eligible source |
-| Destination enumeration | Reach-map bit selection | Same reach-map bit selection |
-| Pawn-file arithmetic | One file per enable, eight steps | Two files in parallel, four steps |
-| Save/evaluation pass | One square per enable | Still one square per enable; packed RAM writes occur every eight squares |
+| Board restore | 64 reads/copies, 128 controller enables | Eight-square words; 8 reads/copies, 16 enables |
+| Source eligibility | Visit every square | Decode all 64 squares concurrently, then select next eligible source |
+| Destination scan | Visit every destination | Select reachable destinations; explicitly add pawn pushes and castling |
+| Pawn-file terms | Eight issue enables | Two lanes; four issue enables plus two pipeline drain enables |
+| Material / placement / hash | 64 square issue steps | Four lanes; 16 groups plus three drain steps |
+| Ordered-move selection | One RAM entry per enable | Four banks, pair winners, group winner |
 
-The source mask derives piece occupancy and color directly from all board
-registers. Its priority encoder preserves ascending square order. The existing
-destination map, promotions and king-safety filter still validate moves.
+The shared enable occurs every four internal clocks. The spatial fabric,
+search controller and recurrent-field update arithmetic remain single
+instances. The field settles once per decision; board restore, evaluation,
+hashing and move selection recur throughout the tree.
 
-Two pawn-file arithmetic lanes also evaluate independent files simultaneously
-at every search node. They compute isolated/doubled/passed pawns, rook files,
-king-file exposure and the existing bishop-pair term. Each file is weighted and
-rounded separately before summing, so combining lanes preserves signed rounding.
+## Evaluation and hashing
 
-The eightfold figure applies to the **restore operation**, not the complete
-engine. Independent comparisons measure total decision cycles separately.
-`STACK_LANES=1, FAST_SOURCES=false, PAWN_LANES=1` recreates the previous
-datapath; production defaults to eight stack lanes, concurrent source selection
-and two pawn-file arithmetic lanes.
+Four adjacent squares have distinct files, so pawn/file summaries update
+without competing for one file counter. Each lane computes material,
+middlegame/endgame placement, phase and king shelter. Weighting and signed
+rounding occur per piece before registered pair sums and final accumulation.
+Pawn structure, bishop pairs, insufficient-material flags and hash salts retain
+the scalar reference's rules.
 
-The fitted design uses **30,949 / 49,760 logic elements (62%)**, compared with
-29,399 (59%) in `8e713ca`. Memory stays at **917,128 bits and 125 / 182 M9K
-blocks**. The packed stack is inferred as **96 x 32 bits in one M9K**. DSP use
-is 45 of the 288 nine-bit multiplier elements. Setup/hold/recovery/removal
-timing passes at every available corner at the existing 50 MHz clock.
+The final phase blend uses registered sum/magnitude and reciprocal-product
+stages for exact division by 24. The pawn-file pass registers raw terms,
+per-file weighting/rounding and accumulation separately. These address measured
+arithmetic paths and preserve score rounding in the narrower reference modes.
 
-The deterministic three-ply fork/promotion pair measures each change separately:
+Four square-interleaved Zobrist ROM banks supply the matching keys. The bank is
+the original key index modulo four; contents use the same SplitMix64 constants.
+Memory tests compare all 1,024 keys with the scalar reference port.
 
-| Datapath | Total FPGA decision cycles |
+The fourteen-level board stack holds eight 32-bit words per board, or 3,584
+logical bits. Production saves/restores packed ranks. The scalar compatibility
+path also saves every square when evaluation issues four squares at once.
+
+## Move queues
+
+Four interleaved RAM banks store the existing 32-bit move/priority records.
+The native-clock pipeline reads a group, registers two pair winners, then
+registers its group winner. Address/mask tags stay aligned with the data.
+Partial groups mask unused lanes; ties choose the lower queue index.
+Remove-by-swap retrieves the actual final live entry before replacing the
+selected move.
+
+The four-clock controller interval accommodates these stages. Native stages
+have single-cycle timing requirements; only registers with the common
+controller enable receive the paired four-cycle setup/three-cycle hold
+exception. Registered controller requests feed short native write/start
+strobes. [build-results.txt](build-results.txt) records routed timing.
+
+## Reference configurations and measurements
+
+`STACK_LANES=1`, `FAST_SOURCES=false`, `PAWN_LANES=1`, `EVAL_LANES=1` and
+`QUEUE_LANES=1` retain narrower reference paths. Production uses 8, true, 2,
+4 and 4 respectively. `ROOT_PVS=false, ROOT_ORDERING=false` provides a
+full-window root-search reference for validating exact values and scout bounds.
+
+[advancement-results.json](advancement-results.json) isolates four-lane
+evaluation, root scheduling and queue banking on deterministic three-ply
+fork/promotion fixtures. New positional terms and exchange ordering are
+disabled in that isolated comparison. Separate special-rule searches check
+PVS bounds with those features enabled. These establish efficiency and
+correctness within their stated scope; they do not establish a strength rating.
+
+The first parallel release at `7b75290` used twelve stack levels, a scalar
+evaluator, 50 MHz, 30,949 logic elements and 125 M9Ks. Its two-fixture comparison
+was:
+
+| Historical first-stage variant | Decision cycles |
 | --- | ---: |
-| Previous: one-square restore, sequential sources, one pawn-file lane | 3,582,792 |
+| One-square restore, sequential sources, one pawn lane | 3,582,792 |
 | Eight-square restore | 2,126,344 |
 | Plus parallel source mask | 1,556,760 |
-| Plus two pawn-file arithmetic lanes | 1,533,784 |
+| Plus paired pawn-file arithmetic | 1,533,784 |
 
-That is **57.19% fewer cycles** or **2.336x throughput** for this pair, with the
-same scores, selected moves, search-node counts and cache-match counts. All
-variants use the same reach-map destination scanner, cache and search depth.
-Random root preferences and recurrent-field relaxation are disabled. This
-measures datapath efficiency, not a win-rate gain or a guaranteed whole-game
-speedup. See [parallel-results.json](parallel-results.json).
-
-## Next stage: four evaluation lanes
-
-The current `SEARCH_SAVE` path visits all 64 squares to evaluate material and
-piece placement, accumulate the position hash, count material, and build pawn
-file summaries. A practical next design processes four adjacent squares at once:
-
-```mermaid
-flowchart LR
-    Board["Speculative board registers"] --> Group["Four adjacent squares"]
-    Group --> E0["Evaluation lane 0"]
-    Group --> E1["Evaluation lane 1"]
-    Group --> E2["Evaluation lane 2"]
-    Group --> E3["Evaluation lane 3"]
-    E0 --> Sum["Pipelined sum / XOR trees"]
-    E1 --> Sum
-    E2 --> Sum
-    E3 --> Sum
-    Sum --> Eval["Middlegame / endgame totals<br/>Phase and material counts"]
-    Sum --> Hash["Position key"]
-    Group --> Files["Four independent file-summary updates"]
-    Board --> Stack["Implemented: 32-bit board-stack words<br/>Eight-square restore"]
-    Eval --> Pawns["Pawn-file terms and final blend"]
-    Files --> Pawns
-```
-
-Each lane computes material, middlegame/endgame piece placement, phase and pawn
-shelter. A balanced reduction tree combines the contributions. Four adjacent
-squares have distinct files, allowing four file summaries to update without
-competing for the same file counter.
-
-The Zobrist ROM also needs four simultaneous reads. Partitioning keys by square
-index modulo four gives one distinct bank per lane. Merely adding arithmetic
-units while keeping one ROM port would leave that port as the bottleneck.
-The table keeps the same logical key contents; physical block packing must be
-checked in Quartus.
-
-This reduces 64 evaluation issue steps to 16 groups, plus pipeline fill/drain.
-The actual latency, logic, DSP use and memory packing need a fitted design.
-Per-piece weighting and rounding must happen before the reduction so cached
-scores preserve their current meaning. Pawn terms, bishop-pair terms,
-insufficient-material detection and hash salts must remain identical.
-
-This stage is **planned**, not implemented in the current RTL.
-
-## Following stage: wider move selection
-
-Currently, selecting the next ordered move scans a RAM queue one entry at a
-time. Four interleaved queue banks could read four entries per controller step.
-A comparator tree would select the best priority and preserve the current
-lowest-index tie rule. The last partial group must mask invalid lanes, and the
-remove-by-swap operation must still use the correct last queue entry.
-
-This attacks another per-node loop. Queue ports and bank packing need to be
-designed together with the arithmetic; a four-way comparator alone does not
-provide four reads from a single-port RAM.
-
-This stage is also **planned**.
-
-## Search scheduling and limits
-
-The search still needs a result from one child before updating alpha/beta and
-deciding whether to search another child. Faster per-position hardware removes
-work around that dependency. Multiple independent search engines would also
-need separate speculative boards, spatial fabrics and memory access paths.
-The previous fitted release used 59% of logic and 125 of 182 M9K blocks, so
-selective datapath widening is a sensible first step before full replication.
-
-Root move ordering and shared root bounds can reduce how many nodes must be
-visited. Those algorithm changes complement the parallel datapath; they also
-require the candidate display/protocol to distinguish score bounds from exact
-scores when a candidate is pruned.
-
-Success is a faster complete evaluation or more completed depth under the same
-time budget, within the device and timing limits. Deterministic equivalence
-checks protect chess behavior; they do not establish a win-rate improvement.
+That 57.19% cycle reduction / 2.336x throughput belongs to the historical
+fixtures and evaluator. [parallel-results.json](parallel-results.json) retains
+that record. Current resource, clock and comparison results are recorded
+separately; speedups from different workloads should not be multiplied.

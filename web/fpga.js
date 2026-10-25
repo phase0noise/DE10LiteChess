@@ -11,7 +11,7 @@
   const u32=(a,i)=>((a[i]*0x1000000)+(a[i+1]<<16)+(a[i+2]<<8)+a[i+3])>>>0;
   const same=(a,b)=>a.length===b.length&&Array.from(a).every((v,i)=>v===b[i]);
   class Fpga {
-    constructor(fetcher=(...args)=>fetch(...args)) {this.fetcher=fetcher;this.queue=Promise.resolve();}
+    constructor(fetcher=(...args)=>fetch(...args)) {this.fetcher=fetcher;this.queue=Promise.resolve();this.clockHz=50000000;}
     command(sub,data=[]) {
       const run=async()=>{
         const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
@@ -27,15 +27,23 @@
     }
     async status() {
       const a=await this.command(0);
-      if(a.length!==32||String.fromCharCode(...a.slice(0,4))!=='SCF1'||a[15]<3) throw Error('Program the DE10-Lite chess image first.');
+      const signature=String.fromCharCode(...a.slice(0,4));
+      if(!((a.length===32&&signature==='SCF1'&&[3,4].includes(a[15]))||(a.length===40&&signature==='SCF2'&&a[15]===5))) throw Error('Load matching DE10-Lite and Pico chess images.');
+      if(this.version!==a[15]) this.maxDepth=undefined;
       this.version=a[15];
-      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),score:i16(a,12),state:a[14],cycles:u32(a,16),generation:u32(a,20),version:a[15],searchDepth:a[15]>=4?a[28]:0,completedDepth:a[15]>=4?a[29]:0};
+      if(this.version===5) {
+        const frequency=u32(a,36);if(frequency<1000000||frequency>250000000) throw Error('Invalid FPGA clock frequency.');
+        this.clockHz=frequency;
+      } else {this.clockHz=50000000;this.maxDepth=this.version===4?6:3;}
+      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),score:i16(a,12),state:a[14],cycles:u32(a,16)+(this.version===5?u32(a,32)*4294967296:0),generation:u32(a,20),version:a[15],clockHz:this.clockHz,searchDepth:a[15]>=4?a[28]:0,completedDepth:a[15]>=4?a[29]:0};
     }
     async setDepth(depth,timeSeconds=10) {
-      if(![0,2,3,4,5,6].includes(depth)) throw Error('Unsupported search depth.');
+      if(![0,2,3,4,5,6,7,8].includes(depth)) throw Error('Unsupported search depth.');
       if(!Number.isInteger(timeSeconds)||timeSeconds<1||timeSeconds>60) throw Error('Think time must be 1 to 60 seconds.');
       if(this.version===undefined) await this.status();
       if(depth>3&&this.version<4) throw Error('Load the expanded DE10-Lite FPGA image to use deeper search.');
+      if(this.version===5&&this.maxDepth===undefined) await this.telemetry();
+      if(depth>(this.maxDepth??(this.version===4?6:3))) throw Error('Unsupported search depth for this FPGA image. Load the eight-ply release.');
       const policy=await this.command(12,[0]);
       if(policy.length!==64) throw Error('Invalid policy page.');
       policy[10]=depth;
@@ -44,11 +52,23 @@
     }
     async telemetry() {
       const a=await this.command(18);
-      if(![10,20].includes(a.length)) throw Error('Invalid FPGA search telemetry.');
-      return {nodes:u32(a,0),cutoffs:u32(a,4),targetDepth:a[8],quiescence:a[9],
-        depth:a.length===20?a[10]:a[8],cacheEnabled:a.length===20?!!(a[11]&2):false,
-        budgetExpired:a.length===20&&!!(a[11]&1),
-        cacheHits:a.length===20?u32(a,12):0,cacheStores:a.length===20?u32(a,16):0};
+      if(![10,20,128].includes(a.length)||(this.version===5&&a.length!==128)) throw Error('Invalid FPGA search telemetry.');
+      const expanded=a.length>=20;
+      const data={nodes:u32(a,0),cutoffs:u32(a,4),targetDepth:a[8],quiescence:a[9],
+        depth:expanded?a[10]:a[8],cacheEnabled:expanded?!!(a[11]&2):false,
+        budgetExpired:expanded&&!!(a[11]&1),clockHz:this.clockHz,
+        cacheHits:expanded?u32(a,12):0,cacheStores:expanded?u32(a,16):0};
+      if(a.length===128) {
+        const clockHz=u32(a,20),maxDepth=a[24],pvLength=a[64],phaseCycles=Array.from({length:7},(_,i)=>u16(a,112+i*2)*4294967296+u32(a,36+i*4)),snapshotCycles=u16(a,110)*4294967296+u32(a,98);
+        if(clockHz<1000000||clockHz>250000000||maxDepth<2||maxDepth>8||pvLength>14||
+          phaseCycles.reduce((sum,n)=>sum+n,0)!==snapshotCycles) throw Error('Invalid FPGA capabilities or phase counters.');
+        this.clockHz=clockHz;this.maxDepth=maxDepth;
+        Object.assign(data,{clockHz,maxDepth,tacticalDepth:a[25],evalLanes:a[26],clockDivide:a[27],
+          cacheCutoffs:u32(a,28),rootResearches:u32(a,32),phaseCycles,snapshotCycles,
+          pv:Array.from({length:pvLength},(_,i)=>u16(a,65+i*2)),features:a[93],
+          staticKing:i16(a,94),staticMobility:i16(a,96),seeCalls:u32(a,102),seeCycles:u32(a,106),queueLanes:a[126]});
+      }
+      return data;
     }
     async evaluate(game,{cancelled=()=>false,progress=()=>{},stage=()=>{},depth=5,timeSeconds=10}={}) {
       const position=game.position,expected=position.positionBytes(),legal=position.legalMoves();
@@ -81,11 +101,31 @@
           for(let i=0;i<16&&actual.length<status.count;i++) {
             const move=u16(a,i*4);actual.push(move);candidates.push({move,score:i16(a,i*4+2)});
           }
+          if(status.version===5) {
+            const meta=await this.command(19,[page]);
+            if(meta.length!==16) throw Error('Invalid FPGA candidate metadata.');
+            for(let i=0;i<16&&page*16+i<status.count;i++) {
+              const candidate=candidates[page*16+i],kind=meta[i]>>6;
+              if(kind>2||(meta[i]&15)!==status.completedDepth) throw Error('FPGA candidate belongs to an incomplete iteration.');
+              candidate.bound=['exact','upper','lower'][kind];candidate.depth=meta[i]&15;
+              if(kind===2||candidate.score>status.score) throw Error('FPGA candidate bounds do not establish the selected move.');
+            }
+          }
         }
         const sorted=values=>values.slice().sort((a,b)=>a-b);
         if(!same(sorted(actual),sorted(legal))||new Set(actual).size!==actual.length) throw Error('FPGA legal moves disagree with the browser. No move was played.');
-        if(!legal.length) return {move:null,cycles:status.cycles,nodes:0};
+        if(!legal.length) return {...telemetry,move:null,cycles:status.cycles,nodes:0,candidates,parts:[],field:null};
         if(!actual.includes(status.move)) throw Error('FPGA selected a move absent from its legal set.');
+        if(status.version===5&&candidates.find(c=>c.move===status.move).bound!=='exact') throw Error('FPGA selected an inexact move.');
+        const pvSan=[];
+        if(telemetry?.pv?.length) {
+          if(telemetry.pv[0]!==status.move) throw Error('FPGA continuation does not match the selected move.');
+          const replay=position.clone();
+          for(const move of telemetry.pv) {
+            if(!replay.legalMoves().includes(move)) throw Error('FPGA continuation contains an illegal move.');
+            pvSan.push(replay.san(move));replay.make(move);
+          }
+        }
         const field=await this.command(4);
         if(field.length!==80) throw Error('Invalid FPGA field snapshot.');
         const index=actual.indexOf(status.move),explanations=await this.command(14,[Math.floor(index/4)]),offset=(index%4)*18;
@@ -97,7 +137,7 @@
         await this.command(11,[g>>>24,(g>>>16)&255,(g>>>8)&255,g&255,m>>8,m&255]);
         const result=position.clone().make(m).positionBytes();
         if(!same(await this.command(5),result)) throw Error('FPGA move commit did not match the expected board. Reconnect to retry.');
-        return {...telemetry,move:m,cycles:status.cycles,score:status.score,candidates,parts,
+        return {...telemetry,move:m,cycles:status.cycles,score:status.score,candidates,parts,pvSan,
           field:Array.from(field.slice(16),n=>n>127?n-256:n),
           attacks:{white:Array.from(field.slice(0,8)),black:Array.from(field.slice(8,16))}};
       } catch(error) {

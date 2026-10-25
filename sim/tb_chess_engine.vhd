@@ -11,6 +11,9 @@ entity tb_chess_engine is
     CHECK_TACTICS : boolean := true; EXPECT_TIMEOUT : boolean := false;
     DETERMINISTIC : boolean := false; FAST_DESTINATIONS : boolean := true; STACK_LANES : positive := 8;
     FAST_SOURCES : boolean := true; PAWN_LANES : positive := 2; FIRST_POSITION : natural := 0;
+    EVAL_LANES : positive := 4; ROOT_PVS : boolean := true; ROOT_ORDERING : boolean := true;
+    POSITION_TERMS : boolean := true; SEE_ORDERING : boolean := true; QUEUE_LANES : positive := 4;
+    EXPECT_MIN_PLY : natural := 0; REPORT_SCORES : boolean := false;
     POSITION_COUNT : natural := natural'high);
 end;
 architecture test of tb_chess_engine is
@@ -27,7 +30,8 @@ architecture test of tb_chess_engine is
   signal running : boolean := true;
 begin
   clk <= not clk after 10 ns when running else '0';
-  dut : entity work.chess_engine generic map(CLOCK_DIVIDE=>CLOCK_DIVIDE,TRACE_SEARCH=>TRACE,CLOCK_HZ=>TEST_CLOCK_HZ,FAST_DESTINATIONS=>FAST_DESTINATIONS,STACK_LANES=>STACK_LANES,FAST_SOURCES=>FAST_SOURCES,PAWN_LANES=>PAWN_LANES) port map(clk=>clk,reset=>reset,
+  dut : entity work.chess_engine generic map(CLOCK_DIVIDE=>CLOCK_DIVIDE,TRACE_SEARCH=>TRACE,CLOCK_HZ=>TEST_CLOCK_HZ,FAST_DESTINATIONS=>FAST_DESTINATIONS,STACK_LANES=>STACK_LANES,FAST_SOURCES=>FAST_SOURCES,PAWN_LANES=>PAWN_LANES,
+    EVAL_LANES=>EVAL_LANES,ROOT_PVS=>ROOT_PVS,ROOT_ORDERING=>ROOT_ORDERING,POSITION_TERMS=>POSITION_TERMS,SEE_ORDERING=>SEE_ORDERING,QUEUE_LANES=>QUEUE_LANES) port map(clk=>clk,reset=>reset,
     rx_we=>rx_we,rx_address=>rx_addr,rx_data=>rx_data,command=>command,
     request_length=>req_len,request_token=>token,response_done=>complete,
     response_status=>status,response_length=>resp_len,read_address=>rd_addr,
@@ -41,6 +45,9 @@ begin
     variable seen : seen_t := (others=>false);
     type scores_t is array(0 to 32767) of integer;
     variable expected_scores : scores_t := (others=>40000);
+    variable expected_kinds : scores_t := (others=>0);
+    variable page_metadata : bytes_t(0 to 15);
+    variable pv_text : line;
     variable activation,parts,part : integer;
     variable runtime_policy : bytes_t(0 to 127) := policy_defaults;
     variable focus_move,other_move,score_gap : integer;
@@ -50,6 +57,7 @@ begin
     variable commit_expected : boolean;
     variable expected_best : integer;
     variable decision_cycles,nodes,cache_hits,completed_depth,search_flags : natural;
+    variable profile_sum,snapshot_cycles,pv_length,meta,selected_kind : natural;
     procedure send(constant length : natural; constant expected_status : natural := 0) is
     begin
       for i in 0 to length-1 loop
@@ -127,6 +135,24 @@ begin
         assert hi+lo+n+found>0 report "search did not visit any nodes" severity failure;
         get(10,completed_depth);get(11,search_flags);get(12,hi);get(13,lo);get(14,n);get(15,found);
         cache_hits:=hi*16777216+lo*65536+n*256+found;
+        get(64,pv_length); assert pv_length>0 and pv_length<=SEARCH_LEVELS report "Missing completed PV prefix" severity failure;
+        get(25,n);assert n>=EXPECT_MIN_PLY report "Search did not exercise required stack depth" severity failure;
+        get(65,hi);get(66,lo);assert hi*256+lo=best report "Published PV does not start with selected move" severity failure;
+        if DETERMINISTIC then
+          pv_text:=new string'("PV position="&integer'image(test_count)&" moves=");
+          for j in 0 to pv_length-1 loop
+            get(65+j*2,hi);get(66+j*2,lo);write(pv_text,integer'image(hi*256+lo)&" ");
+          end loop;
+          report pv_text.all; deallocate(pv_text);
+        end if;
+        profile_sum:=0;
+        for g in 0 to 6 loop
+          get(36+g*4,hi);get(37+g*4,lo);get(38+g*4,n);get(39+g*4,found);
+          profile_sum:=profile_sum+hi*16777216+lo*65536+n*256+found;
+          if DETERMINISTIC then report "PHASE position="&integer'image(test_count)&" group="&integer'image(g)&" cycles="&integer'image(hi*16777216+lo*65536+n*256+found); end if;
+        end loop;
+        get(98,hi);get(99,lo);get(100,n);get(101,found);snapshot_cycles:=hi*16777216+lo*65536+n*256+found;
+        assert profile_sum=snapshot_cycles report "Phase cycle counters do not reconcile" severity failure;
         packet(0):=x"00";send(1);get(16,hi);get(17,lo);get(18,n);get(19,found);
         decision_cycles:=hi*16777216+lo*65536+n*256+found;
         report "BENCH position="&integer'image(test_count)&" best="&integer'image(best)&
@@ -144,6 +170,10 @@ begin
       end if;
       for page in 0 to 15 loop
         if page*16<count then
+          packet(0):=x"13";packet(1):=oct(page);send(2);
+          for i in 0 to 15 loop
+            if page*16+i<count then get(i,n);page_metadata(i):=oct(n);else page_metadata(i):=x"00";end if;
+          end loop;
           packet(0):=x"07"; packet(1):=oct(page); send(2);
           for i in 0 to 15 loop
             if page*16+i<count then
@@ -154,14 +184,35 @@ begin
               get(i*4+2,hi); get(i*4+3,lo); activation:=hi*256+lo;
               if activation>=32768 then activation:=activation-65536; end if;
               expected_scores(move):=activation;
-              if DETERMINISTIC then
+              expected_kinds(move):=to_integer(unsigned(page_metadata(i)))/64;
+              if DETERMINISTIC or REPORT_SCORES then
                 report "CACHE_SCORE position="&integer'image(test_count)&" move="&integer'image(move)&
-                  " value="&integer'image(activation);
+                  " value="&integer'image(activation)&" bound="&integer'image(to_integer(unsigned(page_metadata(i)))/64);
               end if;
             end if;
           end loop;
         end if;
       end loop;
+      if count>0 then
+        selected_kind:=3;
+        for page in 0 to 15 loop
+          if page*16<count then
+            packet(0):=x"07";packet(1):=oct(page);send(2);
+            for i in 0 to 15 loop
+              if page*16+i<count then
+                get(i*4,hi);get(i*4+1,lo);
+                if hi*256+lo=best then
+                  packet(0):=x"13";packet(1):=oct(page);send(2);get(i,meta);
+                  selected_kind:=meta/64;
+                  assert meta mod 16=completed_depth or SEARCH_DEPTH=0 report "Candidate depth does not match published iteration" severity failure;
+                  packet(0):=x"07";packet(1):=oct(page);send(2);
+                end if;
+              end if;
+            end loop;
+          end if;
+        end loop;
+        assert selected_kind=0 report "Selected move has an inexact bound" severity failure;
+      end if;
       for detail_page in 0 to 63 loop
         if detail_page*4<count then
           packet(0):=x"0E"; packet(1):=oct(detail_page); send(2);
@@ -184,7 +235,12 @@ begin
       end loop;
       if CHECK_TACTICS and focus_move>=0 then
         report "behavior activation: focus "&integer'image(expected_scores(focus_move))&" versus alternative "&integer'image(expected_scores(other_move));
-        assert expected_scores(focus_move)>expected_scores(other_move)+score_gap report "tactical move was not rewarded" severity failure;
+        if expected_kinds(focus_move)=0 and expected_kinds(other_move)=0 then
+          assert expected_scores(focus_move)>expected_scores(other_move)+score_gap report "tactical move was not rewarded" severity failure;
+        elsif score_gap>0 then
+          -- A loose upper bound is not an exact runner-up evaluation.
+          assert best/=other_move report "Selected the independently identified inferior tactical move" severity failure;
+        end if;
       end if;
       packet(0):=x"04"; send(1);
       for i in 0 to 15 loop

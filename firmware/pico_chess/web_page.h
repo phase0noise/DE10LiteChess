@@ -101,6 +101,8 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
 @media(prefers-reduced-motion:reduce){.engine-console.working .engine-state:before{animation:none}}
 *{box-sizing:border-box}body{margin:0}button,select{font:inherit}button{cursor:pointer}button:disabled,select:disabled{cursor:default;opacity:.5}button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid #c18036;outline-offset:3px}button[hidden]{display:none}button{color:inherit}.masthead{max-width:1240px;margin:auto;padding:26px 38px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:12px;font-size:21px;text-decoration:none;color:var(--ink);letter-spacing:-.7px}.brand b{font-weight:400}.brand-mark{display:grid;place-items:center;background:var(--green);color:#faf6e9;width:38px;height:38px;border-radius:10px;font-size:31px}.hardware-tag{font-size:10px;letter-spacing:1.6px;color:var(--muted);font-weight:650}.hardware-tag span{padding:0 10px;color:#b0b7ab}main{display:grid;grid-template-columns:minmax(0,660px) minmax(280px,350px);gap:64px;max-width:1164px;margin:40px auto 54px;padding:0 32px}.eyebrow{font-size:10px;letter-spacing:2px;font-weight:700;margin:0 0 10px;color:#7b8775}.board-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}h1,h2,p{margin-top:0}h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:clamp(27px,3vw,37px);letter-spacing:-1.1px;margin-bottom:0}h2{font-weight:500;font-size:20px;letter-spacing:-.5px}.icon-button{border:1px solid var(--line);border-radius:50%;background:transparent;width:38px;height:38px;font-size:25px}.player-bar{display:flex;gap:10px;align-items:center;padding:15px 3px}.player-bar strong{display:block;font-size:13px;font-weight:650}.player-bar small{font-size:11px;display:block;margin-top:3px;color:var(--muted)}.avatar{display:grid;place-items:center;width:34px;height:34px;border-radius:8px;background:#e1e7da;font-size:26px;color:var(--green)}.avatar.human{background:#eee7d8}.color-chip{margin-left:auto;font-size:9px;letter-spacing:1.5px;border:1px solid var(--line);border-radius:4px;padding:6px 8px}.turn-label{margin-left:auto;font-size:11px;color:#637c48}.board-frame{border-radius:5px;padding:10px;background:#3c5041;box-shadow:0 12px 35px #33452c18,0 1px 2px #0003}.board{display:grid;grid-template-columns:repeat(8,1fr);aspect-ratio:1;overflow:hidden}.square{border:0;padding:0;border-radius:0;aspect-ratio:1;position:relative;display:grid;place-items:center;background:#e9e6cf;color:#6b7957;touch-action:manipulation}.square.dark{background:#84956f;color:#f2f1df}.square.last{box-shadow:inset 0 0 0 100px #e2c95155}.square.selected{box-shadow:inset 0 0 0 4px #daae4b}.square.check{background:#ce8874}.piece{width:94%;height:94%;background-image:var(--pieces);background-repeat:no-repeat;background-size:600% 200%;pointer-events:none;z-index:1;filter:drop-shadow(0 2px 1px #0002)}.square.legal:after{content:"";position:absolute;width:23%;height:23%;border-radius:50%;background:#25452e45;z-index:2;pointer-events:none}.square.legal:has(.piece):after{background:transparent;border:4px solid #294d4966;width:89%;height:89%}.coord{position:absolute;font-size:9px;line-height:1;font-weight:600;z-index:3;pointer-events:none}.coord.rank{top:4px;left:4px}.coord.file{bottom:3px;right:4px}.board-note{font-size:11px;color:#909687;text-align:center;margin-top:5px}.sidebar{padding-top:5px}.status-card,.moves-card{border:1px solid var(--line);background:#fcfcf7;border-radius:12px;padding:23px}.connection-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:25px;gap:10px}.connection{font-size:10px;color:#838a7c;display:flex;gap:6px;align-items:center}.connection i{display:block;width:6px;height:6px;border-radius:50%;background:#c39756}.connection.online i{background:#568647}.connection.offline i{background:#b16b52}.text-button{border:0;background:transparent;padding:2px 0;font-size:10px;font-weight:500;color:#62735d}.status-card h2{margin-bottom:8px}.message{font-size:12px;line-height:1.65;color:var(--muted);min-height:40px;margin-bottom:22px;overflow-wrap:anywhere}.message.error{color:#a24e3c}.settings-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}label{font-size:10px;font-weight:500;color:#6e7869}select{display:block;margin-top:7px;width:100%;background:#f4f5ed;border:1px solid var(--line);border-radius:5px;font-size:12px;padding:10px;color:var(--ink)}.primary-button{display:flex;align-items:center;justify-content:space-between;width:100%;padding:13px 15px;border:0;border-radius:6px;background:var(--green);color:#f6f5eb;font-size:12px}.primary-button:hover{background:#17392e}.primary-button span{font-size:18px}.actions{display:flex;justify-content:space-between;gap:8px;margin-top:12px}.actions button{background:transparent;border:0;font-size:10px;color:#6b7764;padding:7px 0}.moves-card{margin-top:18px;min-height:186px}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:15px}.section-heading h2{font-family:Georgia,serif;font-size:18px;margin:0}.moves{max-height:204px;overflow-y:auto;font-size:12px;scrollbar-width:thin}.empty-moves{font-family:Georgia,serif;font-style:italic;color:#8c9383;font-size:13px;text-align:center;padding:23px 8px;margin:0}.move-row{display:grid;grid-template-columns:30px 1fr 1fr;gap:8px;border-radius:4px;padding:7px 8px}.move-row:nth-child(odd){background:#f0f2e8}.move-number{color:#939a89}.engine-card{padding:25px 8px 10px}.engine-card .eyebrow{font-size:8px;letter-spacing:1.4px}.engine-card h2{font-family:Georgia,serif;font-size:22px;margin-bottom:10px}.engine-card>p:not(.eyebrow){font-size:11px;line-height:1.8;color:var(--muted)}.metrics{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line);padding-top:17px;gap:15px}.metrics strong{display:block;font-size:17px;font-weight:500}.metrics span{display:block;font-size:9px;color:var(--muted);margin-top:5px}.offline-note{font-size:9px;color:#929988;text-align:center;margin:17px 0}footer{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding:21px 38px;max-width:1240px;margin:auto;font-size:9px;letter-spacing:1.2px;color:#8b9481}footer span{font-family:Georgia,serif;font-style:italic;letter-spacing:0}dialog{border:1px solid var(--line);border-radius:12px;background:var(--paper);padding:25px;max-width:95vw;color:var(--ink)}dialog::backdrop{background:#1c2b2577}#promotion-options{display:flex;gap:8px;margin-bottom:20px}#promotion-options button{width:70px;height:70px;border:1px solid var(--line);border-radius:5px;background:#dedfc9;display:grid;place-items:center}#promotion-cancel{border:0;background:transparent;text-decoration:underline;font-size:12px}@media(max-width:900px){main{gap:28px;padding:0 24px;grid-template-columns:minmax(0,1fr) 285px}.status-card,.moves-card{padding:18px}h1{font-size:28px}.hardware-tag{font-size:9px}}@media(max-width:700px){.masthead{padding:17px 20px}.brand{font-size:19px}.brand-mark{width:32px;height:32px;font-size:26px}.hardware-tag{font-size:8px;letter-spacing:1px}.hardware-tag span{padding:0 4px}main{display:flex;flex-direction:column;gap:18px;margin-top:26px;padding:0 16px;max-width:540px}.board-heading{margin-bottom:12px}h1{font-size:29px}.board-frame{padding:7px}.sidebar{padding:0}.status-card{padding:20px}.connection-row{margin-bottom:17px}.message{min-height:0;margin-bottom:18px}.moves-card{min-height:125px}.engine-card{padding:22px 10px 8px}.board-note{margin-bottom:0}footer{padding:20px 16px}.coord{font-size:8px}.square.selected{box-shadow:inset 0 0 0 3px #daae4b}}
 
+.phase-profile{padding:1rem 0}.phase-bar{display:flex;height:14px;gap:2px;border-radius:7px;overflow:hidden;background:var(--border)}.phase-bar span{min-width:0}.phase-legend{display:flex;flex-wrap:wrap;gap:.35rem 1rem;margin-top:.65rem;font-size:.72rem;opacity:.8}.pv-line{font-family:ui-monospace,monospace;font-size:.8rem;line-height:1.7;overflow-wrap:anywhere;padding:.7rem 0}.score-parts>.console-note{grid-column:1/-1}
+
 </style>
 </head>
 <body>
@@ -123,7 +125,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
         <div class="connection-row"><span id="connection" class="connection"><i></i>Connecting to FPGA</span><button id="connect" class="text-button">Reconnect</button></div>
         <h2 id="status" aria-live="polite">Setting up the board…</h2>
         <p id="message" class="message" role="status">Your phone is the board. The FPGA is the opponent.</p>
-        <div class="settings-row"><label for="mode" class="wide-setting">Game mode<select id="mode"><option value="human">You vs FPGA</option><option value="watch">FPGA vs FPGA</option><option value="local">Pass &amp; play</option><option value="speed">Speed round</option></select></label><p id="mode-help" class="setting-help">Make your move. The FPGA finds its reply.</p><label for="side" id="side-setting">Play as<select id="side"><option value="0">White</option><option value="1">Black</option></select></label><label for="round-seconds" id="round-setting" hidden>Your move timer<select id="round-seconds"><option value="5">5 seconds</option><option value="10" selected>10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option></select></label><label for="depth">Search depth<select id="depth"><option value="0">Spatial · no tree</option><option value="2">2 ply</option><option value="3">3 ply</option><option value="4">4 ply</option><option value="5" selected>5 ply</option><option value="6">6 ply</option></select></label><label for="time" class="time-setting">FPGA think budget<select id="time"><option value="3">3 seconds</option><option value="10" selected>10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option></select></label></div>
+        <div class="settings-row"><label for="mode" class="wide-setting">Game mode<select id="mode"><option value="human">You vs FPGA</option><option value="watch">FPGA vs FPGA</option><option value="local">Pass &amp; play</option><option value="speed">Speed round</option></select></label><p id="mode-help" class="setting-help">Make your move. The FPGA finds its reply.</p><label for="side" id="side-setting">Play as<select id="side"><option value="0">White</option><option value="1">Black</option></select></label><label for="round-seconds" id="round-setting" hidden>Your move timer<select id="round-seconds"><option value="5">5 seconds</option><option value="10" selected>10 seconds</option><option value="15">15 seconds</option><option value="30">30 seconds</option></select></label><label for="depth">Search depth<select id="depth"><option value="0">Spatial · no tree</option><option value="2">2 ply</option><option value="3">3 ply</option><option value="4">4 ply</option><option value="5" selected>5 ply</option><option value="6">6 ply</option><option value="7">7 ply</option><option value="8">8 ply</option></select></label><label for="time" class="time-setting">FPGA think budget<select id="time"><option value="3">3 seconds</option><option value="10" selected>10 seconds</option><option value="20">20 seconds</option><option value="30">30 seconds</option></select></label></div>
         <button id="new-game" class="primary-button">New game <span aria-hidden="true">↗</span></button>
         <div class="actions"><button id="undo">Undo turn</button><button id="resume">Play FPGA turn</button><button id="stop" hidden>Stop thinking</button></div>
         <button id="claim" class="text-button" hidden>Claim draw</button>
@@ -134,9 +136,11 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     <section id="engine-console" class="engine-console" aria-label="FPGA engine statistics">
       <div class="console-heading"><div><p class="eyebrow">INSIDE THE MAX 10</p><h2>Watch the circuit think.</h2></div><span id="engine-state" class="engine-state">Idle</span></div>
       <div id="engine-pipeline" class="engine-pipeline" aria-label="Move processing stages"><span data-stage="upload">Position</span><span data-stage="field">Spatial field</span><span data-stage="search">Search</span><span data-stage="verify">Verify</span><span data-stage="commit">Play</span></div>
-      <div class="metrics"><div><strong id="decision">—</strong><span>FPGA decision time</span></div><div><strong id="nodes">—</strong><span>nodes explored</span></div><div><strong id="search-depth">—</strong><span>completed / target depth</span></div><div><strong id="node-rate">—</strong><span>nodes / FPGA second</span></div><div><strong id="cutoffs">—</strong><span>alpha-beta cutoffs</span></div><div><strong id="cache-hits">—</strong><span>matching cache probes</span></div><div><strong id="cache-stores">—</strong><span>cache writes</span></div><div><strong id="legal-count">—</strong><span>legal root moves</span></div></div>
-      <div class="console-panels"><div class="search-panel"><div class="section-heading"><h3>Search trace</h3><span id="search-detail">Waiting for a move</span></div><svg id="search-trace" viewBox="0 0 400 90" role="img" aria-label="Search nodes over FPGA decision time"><path d="M0 29H400 M0 59H400 M0 89H400" class="trace-grid"/><polyline id="trace-line" points="0,89"/></svg><p id="trace-caption" class="console-note">Measured nodes over FPGA time. Samples arrive over UART.</p><div class="section-heading"><h3>Moves considered</h3><span>FPGA preference</span></div><div id="candidates" class="candidate-list"><p class="console-note">The strongest five candidates appear after a search.</p></div><p class="console-note">Preference scores rank moves for this turn; they are not win probabilities.</p></div><div class="field-panel"><div class="section-heading"><h3>Spatial field</h3><span id="field-range">No snapshot yet</span></div><div id="field-board" class="field-board" role="img" aria-label="Last completed recurrent field, White at bottom"></div><p class="console-note">Last completed FPGA snapshot · White at bottom.<br>Amber = negative · Green = positive activation.</p><div class="section-heading"><h3>Chosen move breakdown</h3><span id="chosen-move">—</span></div><div id="score-parts" class="score-parts"><p class="console-note">Search, captures, safety, activity, field, habit and noise.</p></div></div></div>
-      <div class="hardware-line"><span>50 MHz board clock</span><span>64 spatial cells</span><span>4,096 cache entries</span><span id="quiescence">Up to 4 extension plies</span></div>
+      <div class="metrics"><div><strong id="decision">—</strong><span>FPGA decision time</span></div><div><strong id="nodes">—</strong><span>nodes explored</span></div><div><strong id="search-depth">—</strong><span>completed / target depth</span></div><div><strong id="node-rate">—</strong><span>nodes / FPGA second</span></div><div><strong id="cutoffs">—</strong><span>alpha-beta cutoffs</span></div><div><strong id="cache-hits">—</strong><span>matching cache probes</span></div><div><strong id="cache-stores">—</strong><span>cache writes</span></div><div><strong id="legal-count">—</strong><span>legal root moves</span></div><div><strong id="engine-clock">—</strong><span>internal clock / evaluation lanes</span></div><div><strong id="tactical-depth">—</strong><span>deepest visited ply</span></div><div><strong id="cache-cutoffs">—</strong><span>cache answers / root re-searches</span></div><div><strong id="see-calls">—</strong><span>capture exchanges analyzed</span></div></div>
+      <div id="phase-profile" class="phase-profile" hidden><div class="section-heading"><h3>Where the clocks go</h3><span>Measured on the FPGA</span></div><div id="phase-bar" class="phase-bar" role="img" aria-label="FPGA cycles by processing phase"></div><div id="phase-legend" class="phase-legend"></div></div>
+      <p id="pv-line" class="pv-line">The captured continuation appears after a completed search.</p>
+      <div class="console-panels"><div class="search-panel"><div class="section-heading"><h3>Search trace</h3><span id="search-detail">Waiting for a move</span></div><svg id="search-trace" viewBox="0 0 400 90" role="img" aria-label="Search nodes over FPGA decision time"><path d="M0 29H400 M0 59H400 M0 89H400" class="trace-grid"/><polyline id="trace-line" points="0,89"/></svg><p id="trace-caption" class="console-note">Measured nodes over FPGA time. Samples arrive over UART.</p><div class="section-heading"><h3>Candidate results</h3><span id="score-kind">FPGA scores</span></div><div id="candidates" class="candidate-list"><p class="console-note">A sample of root candidates appears after a search.</p></div><p class="console-note">Search bounds are marked ≤ or ≥. Scores are not win probabilities.</p></div><div class="field-panel"><div class="section-heading"><h3>Spatial field</h3><span id="field-range">No snapshot yet</span></div><div id="field-board" class="field-board" role="img" aria-label="Last completed recurrent field, White at bottom"></div><p class="console-note">Last completed FPGA snapshot · White at bottom.<br>Amber = negative · Green = positive activation.</p><div class="section-heading"><h3>Chosen move breakdown</h3><span id="chosen-move">—</span></div><div id="score-parts" class="score-parts"><p class="console-note">Search, captures, safety, activity, field, habit and noise.</p></div></div></div>
+      <div class="hardware-line"><span>50 MHz reference</span><span>64 spatial cells</span><span>4,096 cache entries</span><span id="quiescence">Up to 4 extension plies</span></div>
     </section>
   </main>
   <footer>FPGA CHESS <span>A chess engine you can hold in your hands.</span></footer>
@@ -400,7 +404,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
   const u32=(a,i)=>((a[i]*0x1000000)+(a[i+1]<<16)+(a[i+2]<<8)+a[i+3])>>>0;
   const same=(a,b)=>a.length===b.length&&Array.from(a).every((v,i)=>v===b[i]);
   class Fpga {
-    constructor(fetcher=(...args)=>fetch(...args)) {this.fetcher=fetcher;this.queue=Promise.resolve();}
+    constructor(fetcher=(...args)=>fetch(...args)) {this.fetcher=fetcher;this.queue=Promise.resolve();this.clockHz=50000000;}
     command(sub,data=[]) {
       const run=async()=>{
         const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),5000);
@@ -416,15 +420,23 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     }
     async status() {
       const a=await this.command(0);
-      if(a.length!==32||String.fromCharCode(...a.slice(0,4))!=='SCF1'||a[15]<3) throw Error('Program the DE10-Lite chess image first.');
+      const signature=String.fromCharCode(...a.slice(0,4));
+      if(!((a.length===32&&signature==='SCF1'&&[3,4].includes(a[15]))||(a.length===40&&signature==='SCF2'&&a[15]===5))) throw Error('Load matching DE10-Lite and Pico chess images.');
+      if(this.version!==a[15]) this.maxDepth=undefined;
       this.version=a[15];
-      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),score:i16(a,12),state:a[14],cycles:u32(a,16),generation:u32(a,20),version:a[15],searchDepth:a[15]>=4?a[28]:0,completedDepth:a[15]>=4?a[29]:0};
+      if(this.version===5) {
+        const frequency=u32(a,36);if(frequency<1000000||frequency>250000000) throw Error('Invalid FPGA clock frequency.');
+        this.clockHz=frequency;
+      } else {this.clockHz=50000000;this.maxDepth=this.version===4?6:3;}
+      return {busy:!!a[4],done:!!a[5],check:!!a[6],turn:a[7],count:u16(a,8),move:u16(a,10),score:i16(a,12),state:a[14],cycles:u32(a,16)+(this.version===5?u32(a,32)*4294967296:0),generation:u32(a,20),version:a[15],clockHz:this.clockHz,searchDepth:a[15]>=4?a[28]:0,completedDepth:a[15]>=4?a[29]:0};
     }
     async setDepth(depth,timeSeconds=10) {
-      if(![0,2,3,4,5,6].includes(depth)) throw Error('Unsupported search depth.');
+      if(![0,2,3,4,5,6,7,8].includes(depth)) throw Error('Unsupported search depth.');
       if(!Number.isInteger(timeSeconds)||timeSeconds<1||timeSeconds>60) throw Error('Think time must be 1 to 60 seconds.');
       if(this.version===undefined) await this.status();
       if(depth>3&&this.version<4) throw Error('Load the expanded DE10-Lite FPGA image to use deeper search.');
+      if(this.version===5&&this.maxDepth===undefined) await this.telemetry();
+      if(depth>(this.maxDepth??(this.version===4?6:3))) throw Error('Unsupported search depth for this FPGA image. Load the eight-ply release.');
       const policy=await this.command(12,[0]);
       if(policy.length!==64) throw Error('Invalid policy page.');
       policy[10]=depth;
@@ -433,11 +445,23 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     }
     async telemetry() {
       const a=await this.command(18);
-      if(![10,20].includes(a.length)) throw Error('Invalid FPGA search telemetry.');
-      return {nodes:u32(a,0),cutoffs:u32(a,4),targetDepth:a[8],quiescence:a[9],
-        depth:a.length===20?a[10]:a[8],cacheEnabled:a.length===20?!!(a[11]&2):false,
-        budgetExpired:a.length===20&&!!(a[11]&1),
-        cacheHits:a.length===20?u32(a,12):0,cacheStores:a.length===20?u32(a,16):0};
+      if(![10,20,128].includes(a.length)||(this.version===5&&a.length!==128)) throw Error('Invalid FPGA search telemetry.');
+      const expanded=a.length>=20;
+      const data={nodes:u32(a,0),cutoffs:u32(a,4),targetDepth:a[8],quiescence:a[9],
+        depth:expanded?a[10]:a[8],cacheEnabled:expanded?!!(a[11]&2):false,
+        budgetExpired:expanded&&!!(a[11]&1),clockHz:this.clockHz,
+        cacheHits:expanded?u32(a,12):0,cacheStores:expanded?u32(a,16):0};
+      if(a.length===128) {
+        const clockHz=u32(a,20),maxDepth=a[24],pvLength=a[64],phaseCycles=Array.from({length:7},(_,i)=>u16(a,112+i*2)*4294967296+u32(a,36+i*4)),snapshotCycles=u16(a,110)*4294967296+u32(a,98);
+        if(clockHz<1000000||clockHz>250000000||maxDepth<2||maxDepth>8||pvLength>14||
+          phaseCycles.reduce((sum,n)=>sum+n,0)!==snapshotCycles) throw Error('Invalid FPGA capabilities or phase counters.');
+        this.clockHz=clockHz;this.maxDepth=maxDepth;
+        Object.assign(data,{clockHz,maxDepth,tacticalDepth:a[25],evalLanes:a[26],clockDivide:a[27],
+          cacheCutoffs:u32(a,28),rootResearches:u32(a,32),phaseCycles,snapshotCycles,
+          pv:Array.from({length:pvLength},(_,i)=>u16(a,65+i*2)),features:a[93],
+          staticKing:i16(a,94),staticMobility:i16(a,96),seeCalls:u32(a,102),seeCycles:u32(a,106),queueLanes:a[126]});
+      }
+      return data;
     }
     async evaluate(game,{cancelled=()=>false,progress=()=>{},stage=()=>{},depth=5,timeSeconds=10}={}) {
       const position=game.position,expected=position.positionBytes(),legal=position.legalMoves();
@@ -470,11 +494,31 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
           for(let i=0;i<16&&actual.length<status.count;i++) {
             const move=u16(a,i*4);actual.push(move);candidates.push({move,score:i16(a,i*4+2)});
           }
+          if(status.version===5) {
+            const meta=await this.command(19,[page]);
+            if(meta.length!==16) throw Error('Invalid FPGA candidate metadata.');
+            for(let i=0;i<16&&page*16+i<status.count;i++) {
+              const candidate=candidates[page*16+i],kind=meta[i]>>6;
+              if(kind>2||(meta[i]&15)!==status.completedDepth) throw Error('FPGA candidate belongs to an incomplete iteration.');
+              candidate.bound=['exact','upper','lower'][kind];candidate.depth=meta[i]&15;
+              if(kind===2||candidate.score>status.score) throw Error('FPGA candidate bounds do not establish the selected move.');
+            }
+          }
         }
         const sorted=values=>values.slice().sort((a,b)=>a-b);
         if(!same(sorted(actual),sorted(legal))||new Set(actual).size!==actual.length) throw Error('FPGA legal moves disagree with the browser. No move was played.');
-        if(!legal.length) return {move:null,cycles:status.cycles,nodes:0};
+        if(!legal.length) return {...telemetry,move:null,cycles:status.cycles,nodes:0,candidates,parts:[],field:null};
         if(!actual.includes(status.move)) throw Error('FPGA selected a move absent from its legal set.');
+        if(status.version===5&&candidates.find(c=>c.move===status.move).bound!=='exact') throw Error('FPGA selected an inexact move.');
+        const pvSan=[];
+        if(telemetry?.pv?.length) {
+          if(telemetry.pv[0]!==status.move) throw Error('FPGA continuation does not match the selected move.');
+          const replay=position.clone();
+          for(const move of telemetry.pv) {
+            if(!replay.legalMoves().includes(move)) throw Error('FPGA continuation contains an illegal move.');
+            pvSan.push(replay.san(move));replay.make(move);
+          }
+        }
         const field=await this.command(4);
         if(field.length!==80) throw Error('Invalid FPGA field snapshot.');
         const index=actual.indexOf(status.move),explanations=await this.command(14,[Math.floor(index/4)]),offset=(index%4)*18;
@@ -486,7 +530,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
         await this.command(11,[g>>>24,(g>>>16)&255,(g>>>8)&255,g&255,m>>8,m&255]);
         const result=position.clone().make(m).positionBytes();
         if(!same(await this.command(5),result)) throw Error('FPGA move commit did not match the expected board. Reconnect to retry.');
-        return {...telemetry,move:m,cycles:status.cycles,score:status.score,candidates,parts,
+        return {...telemetry,move:m,cycles:status.cycles,score:status.score,candidates,parts,pvSan,
           field:Array.from(field.slice(16),n=>n>127?n-256:n),
           attacks:{white:Array.from(field.slice(0,8)),black:Array.from(field.slice(8,16))}};
       } catch(error) {
@@ -508,7 +552,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
   let human=0,flipped=false,selected=null,legal=[],busy=false,connected=false,cancel=false,claimed=false;
   let drag=null,suppressClick=false;
   let mode='human',roundSeconds=10,paused=false,searching=false,autoTimer=null,clockDeadline=0,clockLeft=null,promotionFinish=null;
-  let trace=[],assisted=[];
+  let trace=[],assisted=[],engineClockHz=50000000;
   const modeHelp={human:'Make your move. The FPGA finds its reply.',watch:'One FPGA plays both colors. Pause whenever you like.',local:'Two players, one board. Pass the phone after each move.',speed:'Beat the countdown, or the FPGA plays a Spatial move for you.'};
   const names=['','pawn','knight','bishop','rook','queen','king'];
   function applyTheme(theme) {
@@ -534,7 +578,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
         if([5,10,15,30].includes(saved.roundSeconds)) roundSeconds=saved.roundSeconds;
         if(Array.isArray(saved.assisted)) assisted=saved.assisted.filter(i=>Number.isInteger(i)&&i>=0&&i<game.history.length);
         if(mode==='speed'&&saved.clockMove===game.history.length&&Number.isFinite(saved.clockLeft)) clockLeft=Math.max(0,Math.min(roundSeconds*1000,saved.clockLeft));
-        if([0,2,3,4,5,6].includes(saved.depth)) $('depth').value=saved.depth;
+        if([0,2,3,4,5,6,7,8].includes(saved.depth)) $('depth').value=saved.depth;
         if([3,10,20,30].includes(saved.timeSeconds)) $('time').value=saved.timeSeconds;
       }
     } catch(_) {game.reset();assisted=[];clockLeft=null;}
@@ -713,13 +757,31 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     $('engine-state').textContent=label||({upload:'Loading position',field:'Spatial field',search:'Searching',verify:'Checking result',commit:'Playing move',complete:'Move complete',idle:'Idle',stopped:'Search stopped',error:'Link interrupted'}[stage]);
   }
   function updateMetrics(data) {
-    const seconds=data.cycles/50000000;
+    engineClockHz=data.clockHz||engineClockHz;
+    const seconds=data.cycles/engineClockHz;
     $('decision').textContent=`${seconds.toFixed(2)} s`;
     if(data.nodes!==undefined) {
       $('nodes').textContent=data.nodes.toLocaleString();$('cutoffs').textContent=data.cutoffs.toLocaleString();
       $('cache-hits').textContent=data.cacheHits.toLocaleString();$('cache-stores').textContent=data.cacheStores.toLocaleString();
       $('node-rate').textContent=seconds>0?Math.round(data.nodes/seconds).toLocaleString():'—';
       $('quiescence').textContent=`${data.quiescence} capture extension plies`;
+    }
+    if(data.evalLanes) {
+      $('engine-clock').textContent=`${(engineClockHz/1e6).toFixed(1)} MHz / ${data.evalLanes} lanes`;
+      $('tactical-depth').textContent=data.tacticalDepth;
+      $('cache-cutoffs').textContent=`${data.cacheCutoffs.toLocaleString()} / ${data.rootResearches.toLocaleString()}`;
+      $('see-calls').textContent=data.seeCalls.toLocaleString();
+    }
+    if(data.phaseCycles) {
+      const labels=['Root / field','Evaluation','Move generation','Move ordering','Board restore','Cache / return','Control'];
+      const total=data.phaseCycles.reduce((a,b)=>a+b,0)||1,bar=$('phase-bar'),legend=$('phase-legend');
+      bar.replaceChildren();legend.replaceChildren();$('phase-profile').hidden=false;
+      data.phaseCycles.forEach((cycles,i)=>{
+        const detail=`${labels[i]} · ${(cycles/engineClockHz*1000).toFixed(1)} ms · ${(cycles/total*100).toFixed(1)}%`;
+        const segment=document.createElement('span');segment.style.flexGrow=cycles;segment.style.backgroundColor=`hsl(${135+i*32} 38% 50%)`;segment.title=detail;bar.append(segment);
+        const item=document.createElement('span');item.textContent=detail;legend.append(item);
+      });
+      bar.setAttribute('aria-label',labels.map((label,i)=>`${label} ${(data.phaseCycles[i]/total*100).toFixed(1)} percent`).join(', '));
     }
     $('legal-count').textContent=data.count?.toLocaleString()??'—';
     $('search-depth').textContent=data.targetDepth===0?'Spatial':data.depth?`${data.depth}${data.depth!==data.targetDepth?' / '+data.targetDepth:''} ply`:`0 / ${data.targetDepth} ply`;
@@ -731,7 +793,7 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     trace.push({cycles,nodes});if(trace.length>120) trace.splice(1,1);
     const maxCycles=trace.at(-1).cycles,maxNodes=Math.max(1,...trace.map(s=>s.nodes));
     $('trace-line').setAttribute('points','0,89 '+trace.map(s=>`${(s.cycles/maxCycles*400).toFixed(1)},${(89-s.nodes/maxNodes*84).toFixed(1)}`).join(' '));
-    $('trace-caption').textContent=`${trace.length} UART sample${trace.length===1?'':'s'} · ${(maxCycles/50000000).toFixed(2)} FPGA seconds · ${nodes.toLocaleString()} nodes`;
+    $('trace-caption').textContent=`${trace.length} UART sample${trace.length===1?'':'s'} · ${(maxCycles/engineClockHz).toFixed(2)} FPGA seconds · ${nodes.toLocaleString()} nodes`;
   }
   function showField(field,attacks) {
     const board=$('field-board');board.replaceChildren();const scale=Math.max(1,...(field||[]).map(Math.abs));
@@ -748,25 +810,33 @@ const char WEB_PAGE[] = R"CHESS(<!doctype html>
     updateMetrics({...result,count:result.candidates?.length??0});
     recordTrace(result.cycles,result.nodes);showField(result.field,result.attacks);
     const container=$('candidates');container.replaceChildren();
-    const ranked=result.candidates.slice().sort((a,b)=>b.score-a.score).slice(0,5);
+    $('score-kind').textContent=result.targetDepth===0?'Spatial preference':'Exact scores / labeled bounds';
+    $('pv-line').textContent=result.pvSan?.length?'Captured continuation: '+result.pvSan.join(' · ')+' (cache reuse can shorten the line).':'Spatial mode · no searched continuation';
+    const ranked=result.candidates.slice().sort((a,b)=>(b.move===result.move)-(a.move===result.move)||((a.bound==='upper')-(b.bound==='upper'))||b.score-a.score).slice(0,5);
     const low=Math.min(...ranked.map(c=>c.score)),high=Math.max(...ranked.map(c=>c.score));
     for(const candidate of ranked) {
       const row=document.createElement('div');row.className='candidate-row'+(candidate.move===result.move?' chosen':'');
       const name=document.createElement('span');name.textContent=game.position.san(candidate.move);name.title=uci(candidate.move);
       const track=document.createElement('span');track.className='candidate-track';
       const bar=document.createElement('i');bar.style.width=`${high===low?100:15+85*(candidate.score-low)/(high-low)}%`;track.append(bar);
-      const score=document.createElement('strong');score.textContent=(candidate.score>0?'+':'')+candidate.score;row.append(name,track,score);container.append(row);
+      const score=document.createElement('strong');score.textContent=(candidate.bound==='upper'?'≤ ':candidate.bound==='lower'?'≥ ':'')+(candidate.score>0?'+':'')+candidate.score;row.append(name,track,score);container.append(row);
     }
     $('chosen-move').textContent=result.move===null?'—':game.position.san(result.move);
     const parts=$('score-parts');parts.replaceChildren();
-    for(const [index,label] of [[6,'Search'],[0,'Captures'],[1,'Safety'],[2,'Activity'],[3,'Field'],[4,'Habit'],[5,'Noise']]) {
+    for(const [index,label] of [[6,'Searched value'],[0,'Captures'],[1,'Safety'],[2,'Activity'],[3,'Field'],[4,'Habit'],[5,'Noise']]) {
       const item=document.createElement('div'),name=document.createElement('span'),value=document.createElement('strong');
       name.textContent=label;value.textContent=(result.parts[index]>0?'+':'')+result.parts[index];item.append(name,value);parts.append(item);
+    }
+    if(result.features&1) {
+      const note=document.createElement('p');note.className='console-note';
+      note.textContent=`Static root terms: king pressure ${result.staticKing}, mobility ${result.staticMobility}. These describe the board after the chosen move; the searched value includes later positions.`;
+      parts.append(note);
     }
   }
   function clearConsole() {
     trace=[];setStage('idle');$('trace-line').setAttribute('points','0,89');
-    for(const id of ['decision','nodes','search-depth','node-rate','cutoffs','cache-hits','cache-stores','legal-count','chosen-move']) $(id).textContent='—';
+    $('phase-profile').hidden=true;$('pv-line').textContent='The captured continuation appears after a completed search.';
+    for(const id of ['decision','nodes','search-depth','node-rate','cutoffs','cache-hits','cache-stores','legal-count','chosen-move','engine-clock','tactical-depth','cache-cutoffs','see-calls']) $(id).textContent='—';
     $('search-detail').textContent='Waiting for a move';$('trace-caption').textContent='Measured nodes over FPGA time. Samples arrive over UART.';
     $('candidates').replaceChildren();$('score-parts').replaceChildren();showField(null);
   }

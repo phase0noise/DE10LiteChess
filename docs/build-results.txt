@@ -1,59 +1,104 @@
-DE10-Lite parallel datapath release - October 24, 2026
+DE10-Lite advanced parallel chess engine - October 24, 2026
 Quartus Prime Lite 23.1std.1; 10M50DAF484C7G
 
-Fitter Status : Successful - Sat Oct 24 17:11:37 2026
+TIMING-QUALIFIED CLOCK
+50 MHz oscillator -> PLL multiply 3 / divide 2 -> 75 MHz engine and UART.
+Controller enable every four internal clocks: 18.75 million enables/second.
+Setup, hold, recovery and removal pass at all available timing corners.
+No programming or physical-board acceptance was performed by this task.
+
+Fitter Status : Successful - Sat Oct 24 20:00:50 2026
 Quartus Prime Version : 23.1std.1 Build 993 05/14/2024 SC Lite Edition
 Revision Name : de10_chess
 Top-level Entity Name : de10_chess
 Family : MAX 10
 Device : 10M50DAF484C7G
 Timing Models : Final
-Total logic elements : 30,949 / 49,760 ( 62 % )
-    Total combinational functions : 28,919 / 49,760 ( 58 % )
-    Dedicated logic registers : 8,136 / 49,760 ( 16 % )
-Total registers : 8136
+Total logic elements : 39,982 / 49,760 ( 80 % )
+    Total combinational functions : 37,030 / 49,760 ( 74 % )
+    Dedicated logic registers : 12,468 / 49,760 ( 25 % )
+Total registers : 12468
 Total pins : 63 / 360 ( 18 % )
 Total virtual pins : 0
-Total memory bits : 917,128 / 1,677,312 ( 55 % )
-Embedded Multiplier 9-bit elements : 45 / 288 ( 16 % )
-Total PLLs : 0 / 4 ( 0 % )
+Total memory bits : 987,168 / 1,677,312 ( 59 % )
+Embedded Multiplier 9-bit elements : 73 / 288 ( 25 % )
+Total PLLs : 1 / 4 ( 25 % )
 UFM blocks : 0 / 1 ( 0 % )
 ADC blocks : 0 / 2 ( 0 % )
+M9Ks: 133 / 182 (73%)
 
-Slow 1200mV 85C Model setup slack: 2.093 ns
-Slow 1200mV 85C Model hold slack: 0.219 ns
-Slow 1200mV 85C Model recovery slack: 14.175 ns
-Slow 1200mV 85C Model removal slack: 4.728 ns
-Slow 1200mV 0C Model setup slack: 3.651 ns
-Slow 1200mV 0C Model hold slack: 0.217 ns
-Slow 1200mV 0C Model recovery slack: 14.662 ns
-Slow 1200mV 0C Model removal slack: 4.336 ns
-Fast 1200mV 0C Model setup slack: 12.649 ns
-Fast 1200mV 0C Model hold slack: 0.071 ns
-Fast 1200mV 0C Model recovery slack: 17.072 ns
-Fast 1200mV 0C Model removal slack: 2.102 ns
+Slow 1200mV 85C Model setup slack: 2.293 ns
+Slow 1200mV 85C Model hold slack: 0.241 ns
+Slow 1200mV 85C Model recovery slack: 9.769 ns
+Slow 1200mV 85C Model removal slack: 3.058 ns
+Slow 1200mV 0C Model setup slack: 3.094 ns
+Slow 1200mV 0C Model hold slack: 0.195 ns
+Slow 1200mV 0C Model recovery slack: 10.088 ns
+Slow 1200mV 0C Model removal slack: 2.794 ns
+Fast 1200mV 0C Model setup slack: 8.075 ns
+Fast 1200mV 0C Model hold slack: 0.113 ns
+Fast 1200mV 0C Model recovery slack: 11.547 ns
+Fast 1200mV 0C Model removal slack: 1.415 ns
 
-; Illegal Clocks                  ; 0     ; 0    ;
-; Unconstrained Clocks            ; 0     ; 0    ;
-; Unconstrained Input Ports       ; 0     ; 0    ;
-; Unconstrained Output Ports      ; 0     ; 0    ;
-; M9Ks                                        ; 125 / 182 ( 69 % )             ;
+Illegal Clocks: 0 / 0
+Unconstrained Clocks: 0 / 0
+Unconstrained Input Ports: 0 / 0
+Unconstrained Output Ports: 0 / 0
 
-Board stack: 96 x 32-bit words, 3072 logical bits, one M9K.
-Controller restore: 16 enables, previously 128.
-Parallel source eligibility mask: enabled.
-Pawn-file arithmetic: two lanes, four enables, previously eight.
+REMAINING CRITICAL PATH
+Slow 85 C: engine_read_address[0] -> engine read_data[5].
+Native-clock relationship: 13.333 ns; data delay: 11.010 ns.
+Setup slack: +2.293 ns. Slow-corner Fmax estimate: 90.58 MHz.
+The qualified target is 75 MHz; higher-clock operation is not established.
+Global, native-source and native-endpoint path reports are exported to .cache.
 
-Pico W engine-console image unchanged from 8e713ca.
-Arduino-Pico 6.0.0; rp2040:rp2040:rpipicow:freq=133
-Sketch uses 499620 bytes (23%) of program storage space. Maximum is 2093056 bytes.
-Global variables use 76408 bytes (29%) of dynamic memory. Maximum is 262144 bytes.
+CRITICAL-PATH CHANGES
+- Scratch arithmetic no longer infers unintended persistent native state.
+- Long decoding terminates at common-enable request registers; short phase
+  decodes issue the native RAM-write and exchange-start strobes.
+- Pawn terms, weighting/rounding and accumulation use registered stages.
+- Exact phase division uses magnitude/8, a registered reciprocal product /3,
+  and sign restoration/clamping. Signed integer rounding is preserved.
+- Explanation byte selection is registered with the synchronous RAM word.
+- An enabled PRNG predictor preserves samples while isolating long arithmetic
+  from the changing native generator. Root field data is captured before weighting.
+- Exchange board setup, piece geometry, swap and fold operations are staged.
 
-Deterministic three-ply fork/promotion comparison; same moves, all 18 root scores, nodes and cache matches.
-Reference (1 stack lane, sequential sources, 1 pawn lane): 3582792 cycles.
-8-square restore: 2126344 cycles.
-Plus parallel sources: 1556760 cycles.
-Plus paired pawn-file arithmetic: 1533784 cycles.
-Reduction: 57.19%; throughput ratio: 2.336x on these two fixtures.
-Special-rule search: all 237 scores agree across 19 positions.
-See parallel-results.json; this is not an Elo estimate.
+The superseded 75 MHz candidate had a 67.823 ns / 57-level final evaluation
+path, a 52.939 ns pawn accumulation path and multiple native paths over 13.333 ns.
+Those failed images were retained only under .cache and were not promoted.
+
+SEARCH AND PROTOCOL
+One search controller and one spatial fabric; four evaluation/hash lanes,
+four move-queue banks, two pawn-file lanes and eight-square board restore.
+Fourteen board-stack levels: 112 x 32-bit words, 3584 logical bits.
+Normal depths 2..8, capture extensions 0..4, extra check-evasion allowance.
+Root previous-best ordering and PVS with exact/bound candidate metadata.
+King pressure, pseudo-legal piece mobility and exchange-based capture ordering.
+Protocol 5 / SCF2: status 40 bytes, telemetry 128 bytes, candidate metadata cmd 19.
+Decision time and seven reconciled phase counters are 48 bits.
+
+CONTROLLED TWO-FIXTURE COMPARISON
+New positional terms and exchange ordering disabled to isolate the changes.
+Scalar evaluation / full windows / scalar queue: 1573992 cycles, 1436 nodes.
+Four evaluation/hash lanes: 1298280 cycles, 1436 nodes.
+Plus root ordering/PVS: 345508 cycles, 488 nodes.
+Plus four-bank move selection: 276828 cycles, 488 nodes.
+82.4% fewer decision cycles on these fixtures; not an Elo or whole-game rating.
+Exact best values, valid bounds and 42 legal PV prefixes checked.
+Timing pipelines preserve values/nodes and add 16 clocks per evaluated node.
+Spatial field/noise comparison preserves all 18 candidate scores.
+See advancement-results.json and VALIDATION.md for the complete scope.
+
+PICO W MATCHING IMAGE
+Arduino-Pico 6.0.0; rp2040:rp2040:rpipicow:freq=133.
+Sketch: 506292 bytes (24% of 2093056 program bytes).
+Globals: 76408 bytes (29% of 262144 RAM bytes).
+Embedded page: 147404 characters, including artwork/scripts/styles.
+Load the matching SOF and UF2 together; builds do not upload automatically.
+Source/image SHA-256 fingerprints are in output_files/build_manifest.json.
+
+HISTORICAL FIRST PARALLEL RELEASE (7b75290)
+50 MHz; 30949 logic elements; 125 M9Ks; 45 nine-bit DSP elements; no PLL.
+Its 3582792 -> 1533784 cycle comparison is retained in parallel-results.json.
+This is an older evaluator/workload, separate from the measurements above.

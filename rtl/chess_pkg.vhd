@@ -9,13 +9,19 @@ package chess_pkg is
   type bytes_t is array(natural range <>) of byte_t;
   type field_t is array(0 to 63) of integer range -127 to 127;
   type seeds_t is array(0 to 63) of unsigned(15 downto 0);
-  constant MAX_SEARCH_DEPTH : positive := 6;
+  constant MAX_SEARCH_DEPTH : positive := 8;
   constant MAX_QUIESCENCE : positive := 4;
-  constant SEARCH_LEVELS : positive := 12;
+  constant SEARCH_LEVELS : positive := MAX_SEARCH_DEPTH+MAX_QUIESCENCE+2;
   constant SEARCH_MOVES : positive := 512;
   constant CACHE_INDEX_BITS : positive := 12;
   constant CACHE_ENTRIES : positive := 2**CACHE_INDEX_BITS;
   subtype hash_t is unsigned(63 downto 0);
+  type pieces4_t is array(0 to 3) of piece_t;
+  type hashes4_t is array(0 to 3) of hash_t;
+  type words4_t is array(0 to 3) of std_logic_vector(31 downto 0);
+  subtype third_product_t is unsigned(40 downto 0);
+  function third_product(n : unsigned(20 downto 0)) return third_product_t;
+  function popcount64(bits : std_logic_vector(63 downto 0)) return natural;
   function position_salt(turn : std_logic; rights : std_logic_vector(3 downto 0); ep : natural) return hash_t;
   type offsets_t is array(0 to 7) of integer;
   constant DX : offsets_t := (1,-1,0,0,1,-1,1,-1);
@@ -35,6 +41,23 @@ package chess_pkg is
 end package;
 
 package body chess_pkg is
+  function third_product(n : unsigned(20 downto 0)) return third_product_t is
+  begin
+    -- ceil(2**21 / 3). For every 21-bit n, product(40 downto 21)
+    -- equals n/3 exactly: reciprocal error is strictly below 1/3.
+    return n*to_unsigned(699051,20);
+  end;
+  function popcount64(bits : std_logic_vector(63 downto 0)) return natural is
+    type counts_t is array(0 to 7) of natural range 0 to 64;
+    variable a : counts_t := (others=>0);
+  begin
+    for g in 0 to 7 loop
+      for j in 0 to 7 loop
+        if bits(g*8+j)='1' then a(g):=a(g)+1; end if;
+      end loop;
+    end loop;
+    return ((a(0)+a(1))+(a(2)+a(3)))+((a(4)+a(5))+(a(6)+a(7)));
+  end;
   function position_salt(turn : std_logic; rights : std_logic_vector(3 downto 0); ep : natural) return hash_t is
     type salts_t is array(0 to 11) of hash_t;
     constant salts : salts_t := (x"9E3779B97F4A7C15",x"BF58476D1CE4E5B9",x"94D049BB133111EB",
@@ -118,6 +141,7 @@ package body chess_pkg is
     p(6):=x"50"; p(7):=x"20"; p(8):=x"02"; p(9):=x"10";
     p(10):=x"05"; p(12):=x"10"; p(13):=x"08"; p(15):=x"01";
     p(40):=x"0A"; p(41):=x"04"; p(42):=x"01";
+    p(43):=x"10"; p(44):=x"08";
     p(14):=x"02";
     for d in 16 to 23 loop p(d):=x"08"; end loop;
     for i in 0 to 15 loop p(24+i):=std_logic_vector(to_signed(i*16-120,8)); end loop;

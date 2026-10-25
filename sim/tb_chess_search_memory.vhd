@@ -16,9 +16,13 @@ architecture test of tb_chess_search_memory is
   signal piece : piece_t := x"0";
   signal square : natural range 0 to 63 := 0;
   signal hash : hash_t;
+  signal hash_pieces : pieces4_t := (others=>x"0");
+  signal hash_group : natural range 0 to 15 := 0;
+  signal hash_keys : hashes4_t;
+  signal queue_words : words4_t;
 begin
   clk<=not clk after 10 ns;
-  dut : entity work.chess_search_memory port map(clk,qw,qa,qr,qd,qq,cw,ca,cr,cd,cq,hw,ha,hr,hd,hq,piece,square,hash);
+  dut : entity work.chess_search_memory port map(clk,qw,qa,qr,qd,qq,cw,ca,cr,cd,cq,hw,ha,hr,hd,hq,piece,square,hash,hash_pieces,hash_group,hash_keys,queue_words);
   process
     variable old_hash : hash_t;
   begin
@@ -45,6 +49,23 @@ begin
     assert position_salt('0',"1111",64)/=position_salt('1',"1111",64) severity failure;
     assert position_salt('0',"1111",64)/=position_salt('0',"1110",64) severity failure;
     assert position_salt('0',"1111",64)/=position_salt('0',"1111",20) severity failure;
+    for level in 0 to SEARCH_LEVELS-1 loop
+      for lane in 0 to 3 loop
+        qw<='1';qa<=level*SEARCH_MOVES+SEARCH_MOVES-4+lane;qd<=std_logic_vector(to_unsigned(level*100+lane,32));wait until falling_edge(clk);
+      end loop;
+      qw<='0';qr<=level*SEARCH_MOVES+SEARCH_MOVES-4;wait until falling_edge(clk);
+      for lane in 0 to 3 loop assert unsigned(queue_words(lane))=level*100+lane report "Four-bank queue data/level mismatch" severity failure;end loop;
+    end loop;
+    for code in 0 to 15 loop
+      hash_pieces<=(others=>std_logic_vector(to_unsigned(code,4)));piece<=std_logic_vector(to_unsigned(code,4));
+      for group_index in 0 to 15 loop
+        hash_group<=group_index;wait until falling_edge(clk);
+        for lane in 0 to 3 loop
+          square<=group_index*4+lane;wait until falling_edge(clk);
+          assert hash_keys(lane)=hash report "Banked hash key differs from scalar lookup" severity failure;
+        end loop;
+      end loop;
+    end loop;
     report "PASS: all search RAM levels, cache/history endpoints, initial state and position-key metadata";
     finish;
   end process;

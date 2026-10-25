@@ -45,12 +45,17 @@ try {
     & .cache/protocol_test.exe
     if ($LASTEXITCODE -ne 0) { throw 'Pico UART parser tests failed.' }
     $sources = @('rtl/chess_pkg.vhd','rtl/chess_cell_memory.vhd','rtl/chess_spatial.vhd',
-                 'rtl/chess_search_memory.vhd','rtl/chess_engine.vhd','rtl/chess_uart_bridge.vhd',
-                 'sim/tb_chess_uart.vhd','sim/tb_chess_engine.vhd','sim/tb_chess_search_memory.vhd')
+                 'rtl/chess_search_memory.vhd','rtl/chess_see.vhd','rtl/chess_engine.vhd','rtl/chess_uart_bridge.vhd',
+                 'sim/tb_chess_uart.vhd','sim/tb_chess_engine.vhd','sim/tb_chess_search_memory.vhd','sim/tb_chess_see.vhd',
+                 'sim/tb_chess_arithmetic.vhd')
     & $Ghdl -a --std=08 --workdir=.cache/ghdl @sources
     if ($LASTEXITCODE -ne 0) { throw 'VHDL analysis failed.' }
+    & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_arithmetic --assert-level=error
+    if ($LASTEXITCODE -ne 0) { throw 'Fixed-point arithmetic comparison failed.' }
     & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_search_memory --assert-level=error
     if ($LASTEXITCODE -ne 0) { throw 'Search memory tests failed.' }
+    & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_see --assert-level=error
+    if ($LASTEXITCODE -ne 0) { throw 'Capture exchange tests failed.' }
     & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_uart --assert-level=error
     if ($LASTEXITCODE -ne 0) { throw 'VHDL UART integration failed.' }
     & $Ghdl -r --std=08 --workdir=.cache/ghdl tb_chess_engine '-gVECTOR_FILE=.cache/chess_vectors.txt' -gCLOCK_DIVIDE=4 --assert-level=error

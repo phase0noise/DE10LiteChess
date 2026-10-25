@@ -5,7 +5,7 @@
   let human=0,flipped=false,selected=null,legal=[],busy=false,connected=false,cancel=false,claimed=false;
   let drag=null,suppressClick=false;
   let mode='human',roundSeconds=10,paused=false,searching=false,autoTimer=null,clockDeadline=0,clockLeft=null,promotionFinish=null;
-  let trace=[],assisted=[];
+  let trace=[],assisted=[],engineClockHz=50000000;
   const modeHelp={human:'Make your move. The FPGA finds its reply.',watch:'One FPGA plays both colors. Pause whenever you like.',local:'Two players, one board. Pass the phone after each move.',speed:'Beat the countdown, or the FPGA plays a Spatial move for you.'};
   const names=['','pawn','knight','bishop','rook','queen','king'];
   function applyTheme(theme) {
@@ -31,7 +31,7 @@
         if([5,10,15,30].includes(saved.roundSeconds)) roundSeconds=saved.roundSeconds;
         if(Array.isArray(saved.assisted)) assisted=saved.assisted.filter(i=>Number.isInteger(i)&&i>=0&&i<game.history.length);
         if(mode==='speed'&&saved.clockMove===game.history.length&&Number.isFinite(saved.clockLeft)) clockLeft=Math.max(0,Math.min(roundSeconds*1000,saved.clockLeft));
-        if([0,2,3,4,5,6].includes(saved.depth)) $('depth').value=saved.depth;
+        if([0,2,3,4,5,6,7,8].includes(saved.depth)) $('depth').value=saved.depth;
         if([3,10,20,30].includes(saved.timeSeconds)) $('time').value=saved.timeSeconds;
       }
     } catch(_) {game.reset();assisted=[];clockLeft=null;}
@@ -210,13 +210,31 @@
     $('engine-state').textContent=label||({upload:'Loading position',field:'Spatial field',search:'Searching',verify:'Checking result',commit:'Playing move',complete:'Move complete',idle:'Idle',stopped:'Search stopped',error:'Link interrupted'}[stage]);
   }
   function updateMetrics(data) {
-    const seconds=data.cycles/50000000;
+    engineClockHz=data.clockHz||engineClockHz;
+    const seconds=data.cycles/engineClockHz;
     $('decision').textContent=`${seconds.toFixed(2)} s`;
     if(data.nodes!==undefined) {
       $('nodes').textContent=data.nodes.toLocaleString();$('cutoffs').textContent=data.cutoffs.toLocaleString();
       $('cache-hits').textContent=data.cacheHits.toLocaleString();$('cache-stores').textContent=data.cacheStores.toLocaleString();
       $('node-rate').textContent=seconds>0?Math.round(data.nodes/seconds).toLocaleString():'—';
       $('quiescence').textContent=`${data.quiescence} capture extension plies`;
+    }
+    if(data.evalLanes) {
+      $('engine-clock').textContent=`${(engineClockHz/1e6).toFixed(1)} MHz / ${data.evalLanes} lanes`;
+      $('tactical-depth').textContent=data.tacticalDepth;
+      $('cache-cutoffs').textContent=`${data.cacheCutoffs.toLocaleString()} / ${data.rootResearches.toLocaleString()}`;
+      $('see-calls').textContent=data.seeCalls.toLocaleString();
+    }
+    if(data.phaseCycles) {
+      const labels=['Root / field','Evaluation','Move generation','Move ordering','Board restore','Cache / return','Control'];
+      const total=data.phaseCycles.reduce((a,b)=>a+b,0)||1,bar=$('phase-bar'),legend=$('phase-legend');
+      bar.replaceChildren();legend.replaceChildren();$('phase-profile').hidden=false;
+      data.phaseCycles.forEach((cycles,i)=>{
+        const detail=`${labels[i]} · ${(cycles/engineClockHz*1000).toFixed(1)} ms · ${(cycles/total*100).toFixed(1)}%`;
+        const segment=document.createElement('span');segment.style.flexGrow=cycles;segment.style.backgroundColor=`hsl(${135+i*32} 38% 50%)`;segment.title=detail;bar.append(segment);
+        const item=document.createElement('span');item.textContent=detail;legend.append(item);
+      });
+      bar.setAttribute('aria-label',labels.map((label,i)=>`${label} ${(data.phaseCycles[i]/total*100).toFixed(1)} percent`).join(', '));
     }
     $('legal-count').textContent=data.count?.toLocaleString()??'—';
     $('search-depth').textContent=data.targetDepth===0?'Spatial':data.depth?`${data.depth}${data.depth!==data.targetDepth?' / '+data.targetDepth:''} ply`:`0 / ${data.targetDepth} ply`;
@@ -228,7 +246,7 @@
     trace.push({cycles,nodes});if(trace.length>120) trace.splice(1,1);
     const maxCycles=trace.at(-1).cycles,maxNodes=Math.max(1,...trace.map(s=>s.nodes));
     $('trace-line').setAttribute('points','0,89 '+trace.map(s=>`${(s.cycles/maxCycles*400).toFixed(1)},${(89-s.nodes/maxNodes*84).toFixed(1)}`).join(' '));
-    $('trace-caption').textContent=`${trace.length} UART sample${trace.length===1?'':'s'} · ${(maxCycles/50000000).toFixed(2)} FPGA seconds · ${nodes.toLocaleString()} nodes`;
+    $('trace-caption').textContent=`${trace.length} UART sample${trace.length===1?'':'s'} · ${(maxCycles/engineClockHz).toFixed(2)} FPGA seconds · ${nodes.toLocaleString()} nodes`;
   }
   function showField(field,attacks) {
     const board=$('field-board');board.replaceChildren();const scale=Math.max(1,...(field||[]).map(Math.abs));
@@ -245,25 +263,33 @@
     updateMetrics({...result,count:result.candidates?.length??0});
     recordTrace(result.cycles,result.nodes);showField(result.field,result.attacks);
     const container=$('candidates');container.replaceChildren();
-    const ranked=result.candidates.slice().sort((a,b)=>b.score-a.score).slice(0,5);
+    $('score-kind').textContent=result.targetDepth===0?'Spatial preference':'Exact scores / labeled bounds';
+    $('pv-line').textContent=result.pvSan?.length?'Captured continuation: '+result.pvSan.join(' · ')+' (cache reuse can shorten the line).':'Spatial mode · no searched continuation';
+    const ranked=result.candidates.slice().sort((a,b)=>(b.move===result.move)-(a.move===result.move)||((a.bound==='upper')-(b.bound==='upper'))||b.score-a.score).slice(0,5);
     const low=Math.min(...ranked.map(c=>c.score)),high=Math.max(...ranked.map(c=>c.score));
     for(const candidate of ranked) {
       const row=document.createElement('div');row.className='candidate-row'+(candidate.move===result.move?' chosen':'');
       const name=document.createElement('span');name.textContent=game.position.san(candidate.move);name.title=uci(candidate.move);
       const track=document.createElement('span');track.className='candidate-track';
       const bar=document.createElement('i');bar.style.width=`${high===low?100:15+85*(candidate.score-low)/(high-low)}%`;track.append(bar);
-      const score=document.createElement('strong');score.textContent=(candidate.score>0?'+':'')+candidate.score;row.append(name,track,score);container.append(row);
+      const score=document.createElement('strong');score.textContent=(candidate.bound==='upper'?'≤ ':candidate.bound==='lower'?'≥ ':'')+(candidate.score>0?'+':'')+candidate.score;row.append(name,track,score);container.append(row);
     }
     $('chosen-move').textContent=result.move===null?'—':game.position.san(result.move);
     const parts=$('score-parts');parts.replaceChildren();
-    for(const [index,label] of [[6,'Search'],[0,'Captures'],[1,'Safety'],[2,'Activity'],[3,'Field'],[4,'Habit'],[5,'Noise']]) {
+    for(const [index,label] of [[6,'Searched value'],[0,'Captures'],[1,'Safety'],[2,'Activity'],[3,'Field'],[4,'Habit'],[5,'Noise']]) {
       const item=document.createElement('div'),name=document.createElement('span'),value=document.createElement('strong');
       name.textContent=label;value.textContent=(result.parts[index]>0?'+':'')+result.parts[index];item.append(name,value);parts.append(item);
+    }
+    if(result.features&1) {
+      const note=document.createElement('p');note.className='console-note';
+      note.textContent=`Static root terms: king pressure ${result.staticKing}, mobility ${result.staticMobility}. These describe the board after the chosen move; the searched value includes later positions.`;
+      parts.append(note);
     }
   }
   function clearConsole() {
     trace=[];setStage('idle');$('trace-line').setAttribute('points','0,89');
-    for(const id of ['decision','nodes','search-depth','node-rate','cutoffs','cache-hits','cache-stores','legal-count','chosen-move']) $(id).textContent='—';
+    $('phase-profile').hidden=true;$('pv-line').textContent='The captured continuation appears after a completed search.';
+    for(const id of ['decision','nodes','search-depth','node-rate','cutoffs','cache-hits','cache-stores','legal-count','chosen-move','engine-clock','tactical-depth','cache-cutoffs','see-calls']) $(id).textContent='—';
     $('search-detail').textContent='Waiting for a move';$('trace-caption').textContent='Measured nodes over FPGA time. Samples arrive over UART.';
     $('candidates').replaceChildren();$('score-parts').replaceChildren();showField(null);
   }

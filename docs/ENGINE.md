@@ -1,150 +1,118 @@
-# Expanded DE10-Lite chess engine
+# Search engine
 
-The engine expands normal lookahead from three to six plies and
-uses the MAX 10's block RAM for search rather than replicating whole chess
-engines. The FPGA still chooses every computer move. The Pico serves the page
-and forwards UART commands; the browser checks legality independently.
+The FPGA owns move generation, evaluation and computer move selection. One
+spatial fabric and one search controller operate on one speculative board.
+Four evaluation/hash lanes, four move-queue banks, eight-square restores and
+two pawn-file arithmetic lanes accelerate work repeated at each node. See
+[ADVANCED_ENGINE.md](ADVANCED_ENGINE.md) for the detailed pipeline and
+[ARCHITECTURE.md](ARCHITECTURE.md) for the browser/Pico/FPGA division.
 
-## Search
+## Search and result publication
 
-The earlier October 24 release (`8e713ca`) uses the wired reach map to skip impossible
-destinations, adding pawn pushes and castling squares before the existing legal
-filter. Deterministic three-ply fork/promotion comparisons preserve all 18 root
-scores, both selected moves, node counts and cache matches while reducing
-decision cycles from 4,503,888 to 3,582,792 (**20.45%**). This compares the same
-cached engine with fast scanning enabled/disabled, not different search depths.
-See [destination-results.json](destination-results.json). The production generic
-`FAST_DESTINATIONS` defaults to true; false retains the original walk for tests.
+The default targets five normal plies with a ten-second budget. Normal depth
+supports 2 through 8, and Spatial mode uses no tree search. Iterative deepening
+starts at two plies. The previous completed best root move goes first at the
+next depth. Later candidates use a narrow alpha/alpha+1 scout window; a
+candidate that can improve the best value is applied again from the factual
+board and searched with a full window.
 
-## Datapath parallelism
+The selected winner has an exact value. A losing scout can publish an upper
+bound, explicitly marked in candidate metadata. The browser checks the full
+legal set and bound semantics before guarded commit. Candidate samples are
+not a ranking of five independently exact runner-up values.
 
-Three additional changes reduce work repeated throughout the search tree:
+Each iteration writes a separate result bank. A timeout preserves the last
+complete candidate bank, selected move, score, immediate-root positional terms
+and captured continuation. The first iteration can exceed a short budget so
+that a successful result still contains the complete legal set. The host
+replays the continuation's legal moves, checks the chosen explanation and
+position, commits with the generation number and reads back the board.
 
-- The board stack packs eight squares into a 32-bit word. A restore copies
-  eight squares per RAM read/copy pair, reducing 128 controller enables to 16
-  (10.24 to 1.28 microseconds at the current clock/enable).
-- A parallel 64-bit source-eligibility mask lets move generation select the
-  next occupied friendly square directly. Source ordering stays ascending.
-- Two pawn-file arithmetic lanes evaluate independent files together, reducing
-  the eight-file pass to four controller enables. Each file's weighting and
-  signed rounding occur before its contribution is added to the total.
+## Move generation and ordering
 
-The shared spatial fabric and search controller remain single instances. The
-stack still stores 3,072 logical bits, and RAM read latency is unchanged. The
-save pass packs eight squares per write while material evaluation and hashing
-continue to scan individual squares. These features default to
-`STACK_LANES=8`, `FAST_SOURCES=true` and `PAWN_LANES=2`. Setting them to
-`1`, `false` and `1` recreates the preceding datapath for comparison.
+A concurrent source mask selects eligible pieces in ascending square order.
+Reach-map destinations skip impossible squares, with pawn pushes and castling
+added explicitly. Every speculative move passes the spatial king-safety
+filter. Castling rook motion, en passant, all four promotions, rights, turn and
+king squares are saved/restored through the same board stack.
 
-See [PARALLEL_ARCHITECTURE.md](PARALLEL_ARCHITECTURE.md) for the stage diagram
-and the planned four-lane material/placement evaluator and banked hash ROM.
+Ordering prefers a cache move, favorable captures/promotions, killer moves and
+quiet-move history/placement. A native-clock exchange analyzer examines
+ambiguous defended captures by a more valuable piece. It follows least-valued
+attackers, exposed slider rays, en passant and promotion; defended king
+recaptures are rejected. Non-king pins are handled conservatively, and the
+chain is bounded to fifteen recaptures. The result changes ordering only and
+never removes a move.
 
-On the deterministic three-ply fork/promotion pair, total decision cycles fall
-from **3,582,792** in the preceding datapath to **1,533,784**: **57.19% fewer
-cycles**, or **2.336x throughput**, at the same 50 MHz clock. The reference and
-parallel variants have the same 18 candidate scores, selected moves, nodes and
-cache matches. Random root preferences and field relaxation are disabled in
-this comparison. See [parallel-results.json](parallel-results.json).
+Quiescence searches captures/promotions for up to four further plies and all
+check evasions. One extra evasion ply is allowed at the quiescence limit.
+Stand pat and horizon evaluation first establish that a legal move exists,
+preserving mate/stalemate at the frontier. Mate values favor shorter wins and
+longer survival. Fourteen stack levels cover normal depth, extensions and
+control headroom.
 
-## Search policy
+Bare kings, king plus one minor against king, and bishop-only positions with
+bishops on one color score as insufficient-material draws. Repetition on the
+speculative path scores as a draw. The browser maintains full game history,
+move-count rules and game-level repetition claims.
 
-The default targets five normal plies with a ten-second budget. Iterative
-deepening completes depths 2, 3, 4, 5, then 6 if requested. Every root move
-receives a full-window alpha-beta search, preserving a scored, complete legal
-set for the host's verification. The deepest completed iteration supplies the
-move; an unfinished iteration never supplies a partially scored result.
+## Evaluation
 
-Each node generates its pseudo-legal moves into a RAM queue. Search ordering
-prefers a matching cache move, captures and promotions, two killer moves per
-ply, then quiet-move history and piece placement. Every applied move passes
-the existing spatial king-safety filter. Castling, en passant, all four
-promotions, rights, turn and king squares are saved/restored through the same
-speculative-board mechanism used for ordinary legal moves.
+Each position is evaluated from its board contents so cached values do not
+depend on a path's arithmetic rounding. Material and placement blend between
+middlegame and endgame by remaining minor/rook/queen material. Other terms
+cover bishop pairs, passed/isolated/doubled pawns, rook files and king shelter.
 
-Quiescence searches captures and promotions for up to four further plies and
-searches all check evasions. One additional evasion ply is allowed at the
-quiescence limit. Stand pat and horizon evaluation first establish that a
-legal move exists, so checkmate and stalemate remain visible at the frontier.
-Terminal mate scores favor shorter wins and longer survival. Bare kings,
-king and a single minor against king, and bishop-only positions with bishops
-all on one color score as insufficient-material draws. Repeated positions on
-the current speculative path score as draws; the browser retains full game
-history and applies the game-level repetition and move-count rules.
+The new terms measure king-zone attack coverage and per-piece reach for
+knights, bishops, rooks and queens, excluding friendly occupied destinations.
+Mobility is pseudo-legal and can include a pinned piece's reach; the move
+legality filter remains separate. Policy weights 43 and 44 control these
+terms. Setting mobility weight to zero skips its piece scan.
+
+Search mode publishes consistent searched position values without adding
+random, habit or recurrent-field bonuses at the root. Spatial mode retains
+its field-based preference scoring. Immediate-root king/mobility telemetry
+is not a decomposition of every leaf in the searched minimax result.
 
 ## Block RAM
 
 | Table | Logical capacity | Purpose |
 | --- | --- | --- |
-| Position cache | 4,096 x 128 bits | Position key, depth, score, bound, move, epoch |
-| Ordered moves | 12 x 512 x 32 bits | Moves and ordering priorities for each stack level |
+| Position cache | 4,096 x 128 bits | Full key, depth, score bound, preferred move, epoch |
+| Ordered moves | 14 x 512 x 32 bits, four banks | Per-level move/priority queues |
 | Quiet history | 4,096 x 13 bits | Saturating source/destination cutoff history |
-| Zobrist keys | 1,024 x 64 bits | Piece/color/square hash ROM |
-| Board stack | 12 x 8 x 32 bits | Eight-square words; one speculative board per level |
-| Candidate results | 2 x 256 x 144 bits | Published and in-progress root explanations |
+| Zobrist keys | 1,024 x 64 bits, four banks | Piece/color/square keys |
+| Board stack | 14 x 8 x 32 bits | Packed speculative boards |
+| Candidate results | 2 x 256 x 144 bits | Published/in-progress explanations |
+| Candidate metadata | 2 x 256 x 8 bits | Bound kind and completed depth |
+| Continuations | 14 x 228 bits | Captured line and length per level |
 
-The cache compares the full 64-bit key, including pieces, side to move,
-castling rights and en-passant square. Entries record normal depth, remaining
-quiescence allowance, stack allowance, exact/lower/upper score bound and mate
-distance. A new evaluation advances an epoch, preventing results from a
-different root or policy configuration from being reused. Soft reset preserves
-the epoch because it does not clear RAM; epoch wrap clears the cache before
-starting again. Search-path repetition results are not cached through their
-ancestors. A 64-bit hash still has a finite collision probability.
+The cache compares a full 64-bit key including side, castling and en passant.
+Entries track normal depth, quiescence allowance, remaining stack allowance,
+score bound and mate distance. A match can answer a search or provide only an
+ordering hint; telemetry distinguishes these cases. An evaluation advances an
+epoch, preventing scored reuse across unrelated roots/policies. Soft reset
+preserves the epoch because it does not clear RAM; wrap clears the table.
+Repetition results are not cached through ancestors. Cache cutoffs can shorten
+the captured continuation, so the console labels it as a prefix.
 
-All tables use synchronous M9K ports. Initialized cache/history RAM and the key
-ROM require the MAX 10 configuration setting `SINGLE COMP IMAGE WITH ERAM`,
-which is included in the QSF. No RAM is cleared through a large reset mux.
+Tables use synchronous M9K ports and the QSF's `SINGLE COMP IMAGE WITH ERAM`
+configuration. There is no large reset mux clearing all RAM. The native-clock
+pipeline and common four-clock controller enable are part of the timing
+contract. Qualified frequency/resources are in [build-results.txt](build-results.txt).
 
-## Evaluation
+## Controls and verification
 
-Each searched position is evaluated from its board contents, avoiding
-path-dependent rounding in cached scores. Material and piece placement blend
-between middlegame and endgame according to the remaining minor/rook/queen
-material. Additional terms reward bishop pairs, passed pawns, rook files and
-king pawn shelter, and penalize isolated/doubled pawns and exposed king files.
-The root retains bounded recurrent-field and move-history preferences. Mate
-scores override those preferences so they cannot outweigh a forced mate.
+[UART_PROTOCOL.md](UART_PROTOCOL.md) specifies protocol 5, eight-ply controls,
+48-bit time/phase counters, reported clock and candidate bounds. Load matching
+FPGA and Pico images. The console displays measured phases, cache answers,
+root re-searches, exchange activity and a legally replayed continuation.
 
-The release fits in 30,949 logic elements (62%) and 917,128 memory bits (55%),
-occupying 125 of the 182 M9K blocks (69%) after RAM width/depth packing.
-Setup, hold, recovery and removal timing pass at every available operating
-corner with a 50 MHz board clock. Engine state advances on its existing
-four-cycle enable; UART and RAM ports operate at the native clock. See
-build-results.txt for exact slack and firmware measurements.
-The standalone engine generic also defaults to four and rejects a smaller
-divider, which would violate the synchronous RAM pipeline and SDC assumptions.
-
-The host explanation-byte decoder uses bounded comparisons for its four
-18-byte records in place of general division/modulo. Its RAM read latency is
-unchanged. The parallel-datapath build passes setup with **2.093 ns** slack at the
-slow 85 C corner and hold with **0.071 ns** at the fast corner, with no
-unconstrained clocks or external ports.
-
-## Browser console and game modes
-
-The console polls existing status and command-18 telemetry while searching,
-then reads the recurrent field and selected candidate explanation before
-commit. It displays FPGA counters, the strongest five candidates and the seven
-score components. Field colors show the last completed snapshot, fixed with
-White at bottom. Scores are raw preferences, not a calibrated evaluation.
-
-Self-play sends both sides through the same hardware path. Speed-round expiry
-sends the human side through Spatial mode and reapplies normal settings for
-the opponent's reply. Pass-and-play does not request engine evaluations.
-Mode, color and human timer settings apply on New game. Speed/self-play restore
-paused, and timeout handling cancels any open human promotion choice.
-
-## Reproduce checks
-
-`tools/verify.ps1` checks the production wired legality fabric, RAM, UART,
-browser rules, existing tactical fixtures, cache enabled/disabled comparisons,
-and safe budget expiry. Add `-Browser` for Chrome interaction checks or
-`-Strength` for the longer mate-in-three benchmark. The independent oracle
-enumerates every defender reply with python-chess and proves each fixture
-requires five plies. This is a focused tactical benchmark, not an Elo rating.
-
-Long search simulations use `sim/chess_spatial_fast.vhd` to compute the same
-attack/reach planes more efficiently in software. A dedicated test compares
-both architectures on all 64 source squares in every independent rule fixture
-before using the model. Production QSF files always select the wired fabric;
-the controller, RAM and evaluator in search simulations are the production RTL.
+`tools/verify.ps1 -Browser -Strength` checks independent legality, native UART,
+RAM banks, exchange cases, tactical choices, cache/reference equivalence,
+scout bounds, deadline publication, an actually visited eight-ply ending,
+proven five-ply mate choices and mobile interactions. Long searches use a
+simulation-only attack model checked against the wired production fabric on
+all source squares in the independent rule fixtures. Search/evaluation/memory
+RTL remains the production implementation. Current results and the separate
+physical-board acceptance status are in [VALIDATION.md](VALIDATION.md).

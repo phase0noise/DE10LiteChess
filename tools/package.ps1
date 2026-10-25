@@ -20,18 +20,35 @@ try {
     foreach ($name in ($files | Sort-Object -Unique)) {
         $hashes[$name] = (Get-FileHash -Algorithm SHA256 -LiteralPath $name).Hash.ToLowerInvariant()
     }
+    $clockSource = Get-Content -LiteralPath rtl/de10_chess.vhd -Raw
+    $clockMultiply = [regex]::Match($clockSource, 'CLOCK_MULTIPLY_BY\s*:\s*positive\s*:=\s*(\d+)')
+    $clockDivide = [regex]::Match($clockSource, 'CLOCK_DIVIDE_BY\s*:\s*positive\s*:=\s*(\d+)')
+    if (-not $clockMultiply.Success -or -not $clockDivide.Success) { throw 'Top-level PLL defaults were not found.' }
+    $clockHz = [long]50000000 * [int]$clockMultiply.Groups[1].Value / [int]$clockDivide.Groups[1].Value
     $manifest = [ordered]@{
         target = 'DE10-Lite / 10M50DAF484C7G'
         bridge = 'Raspberry Pi Pico W / GP0 TX / GP1 RX / 115200 8N1'
         engine = [ordered]@{
-            protocol = 4
-            maxNormalDepth = 6
+            protocol = 5
+            statusSignature = 'SCF2'
+            internalClockHz = $clockHz
+            controllerClockDivide = 4
+            maxNormalDepth = 8
+            searchLevels = 14
             defaultTargetDepth = 5
             defaultThinkSeconds = 10
             positionCacheEntries = 4096
             boardRestoreLanes = 8
             parallelSourceMask = $true
             pawnFileArithmeticLanes = 2
+            evaluationLanes = 4
+            hashBanks = 4
+            moveQueueBanks = 4
+            rootPvs = $true
+            previousBestRootOrdering = $true
+            kingPressureAndMobility = $true
+            captureExchangeOrdering = $true
+            timeCounterBits = 48
         }
         ssid = 'FPGA-Chess'
         url = 'http://192.168.4.1/'

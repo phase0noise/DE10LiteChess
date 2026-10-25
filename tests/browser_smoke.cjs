@@ -13,7 +13,8 @@ function respondCommand(bytes){
   const sub=bytes[0];
   switch(sub){
     case 0:{
-      const a=new Uint8Array(32);a.set([83,67,70,49]);a[4]=deviceSearching&&!done?1:0;a[5]=done?1:0;a[7]=p.turn;a[15]=4;a[28]=requestedDepth;a[29]=done?requestedDepth:0;
+      const a=new Uint8Array(40);a.set([83,67,70,50]);a[4]=deviceSearching&&!done?1:0;a[5]=done?1:0;a[7]=p.turn;a[15]=5;a[28]=requestedDepth;a[29]=done?requestedDepth:0;
+      new DataView(a.buffer).setUint32(36,55000000);new DataView(a.buffer).setUint32(16,5500000);
       const moves=p.legalMoves();selected=moves.find(m=>uci(m)==='e7e5')??moves[0];
       a[8]=moves.length>>8;a[9]=moves.length&255;a[10]=selected>>8;a[11]=selected&255;
       a[23]=generation;return a;
@@ -27,7 +28,13 @@ function respondCommand(bytes){
     case 4:{const a=new Uint8Array(80);for(let s=0;s<64;s++)a[s+16]=(s*5-127)&255;return a;}
     case 12:return new Uint8Array(64);
     case 13:requestedDepth=bytes[12];return [0];
-    case 18:{const a=new Uint8Array(20);a[8]=requestedDepth;a[9]=4;a[10]=requestedDepth;a[11]=2;a[15]=7;return a;}
+    case 18:{const a=new Uint8Array(128);a[8]=requestedDepth;a[9]=4;a[10]=done?requestedDepth:0;a[11]=2;a[15]=7;
+      const view=new DataView(a.buffer),phases=requestedDepth?[50000,1000000,2000000,750000,1500000,100000,100000]:[5500000,0,0,0,0,0,0];
+      view.setUint32(0,requestedDepth?200:0);view.setUint32(20,55000000);view.setUint32(98,5500000);
+      phases.forEach((cycles,i)=>view.setUint32(36+i*4,cycles));
+      a[24]=8;a[25]=8;a[26]=4;a[27]=4;a[93]=15;a[126]=4;
+      a[64]=done?1:0;a[65]=selected>>8;a[66]=selected&255;return a;}
+    case 19:{const a=new Uint8Array(16),moves=p.legalMoves();for(let i=0;i<16;i++)a[i]=requestedDepth|(moves[bytes[1]*16+i]===selected?0:64);return a;}
     case 14:{const a=new Uint8Array(72),moves=p.legalMoves();for(let i=0;i<4;i++){const m=moves[bytes[1]*4+i]||0;a[i*18]=m>>8;a[i*18+1]=m&255;}return a;}
     default:return [0];
   }
@@ -114,6 +121,12 @@ async function run(){
     assert.equal(await evaluate('document.querySelectorAll(".field-cell").length'),64);
     assert.equal(await evaluate('document.querySelectorAll(".score-parts>div").length'),7);
     assert.equal(await evaluate('document.querySelector("#legal-count").textContent'),'20');
+    assert.equal(await evaluate('document.querySelector("#engine-clock").textContent'),'55.0 MHz / 4 lanes');
+    assert.equal(await evaluate('document.querySelector("#decision").textContent'),'0.10 s');
+    assert(await evaluate('[...document.querySelectorAll("#phase-bar span")].every(s=>s.getBoundingClientRect().width>0)'));
+    assert.equal(await evaluate('document.querySelectorAll("#phase-legend>span").length'),7);
+    assert(await evaluate('document.querySelector("#pv-line").textContent.includes("Captured continuation")'));
+    assert(await evaluate('[...document.querySelectorAll(".candidate-row strong")].some(e=>e.textContent.startsWith("≤"))'));
     fs.writeFileSync(path.join(root,'.cache/browser-desktop.png'),Buffer.from((await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:true})).data,'base64'));
     await evaluate('document.querySelector("#undo").click()');assert.equal(await evaluate('document.querySelectorAll(".move-row").length'),0);
     await dragPiece(12,36); // e2-e5 is illegal.

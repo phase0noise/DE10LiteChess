@@ -2,6 +2,7 @@ library ieee;
 use ieee.std_logic_1164.all;
 
 entity de10_chess is
+  generic(CLOCK_MULTIPLY_BY : positive := 3; CLOCK_DIVIDE_BY : positive := 2);
   port(MAX10_CLK1_50 : in std_logic;
     KEY : in std_logic_vector(1 downto 0);
     UART_RX_PIN : in std_logic; UART_TX_PIN : out std_logic;
@@ -10,6 +11,7 @@ entity de10_chess is
 end;
 
 architecture rtl of de10_chess is
+  constant ENGINE_CLOCK_HZ : positive := (50000000/CLOCK_DIVIDE_BY)*CLOCK_MULTIPLY_BY;
   component uart_rx is
     generic(CLOCK_FREQ : integer := 50000000; BAUD_RATE : integer := 9600; HIGH_BAUD_RATE : integer := 115200);
     port(clk,reset,high_speed,rx : in std_logic;
@@ -22,6 +24,7 @@ architecture rtl of de10_chess is
   end component;
   signal reset_pipe : std_logic_vector(3 downto 0) := (others=>'1');
   signal reset : std_logic;
+  signal engine_clk,pll_locked : std_logic;
   signal key_meta,key_sync : std_logic := '1';
   signal rx_byte,tx_byte : std_logic_vector(7 downto 0);
   signal rx_valid,rx_error,tx_start,tx_ready : std_logic;
@@ -41,19 +44,21 @@ architecture rtl of de10_chess is
     end case;
   end;
 begin
-  process(MAX10_CLK1_50, KEY(0)) begin
-    if KEY(0)='0' then reset_pipe<=(others=>'1');
-    elsif rising_edge(MAX10_CLK1_50) then reset_pipe<=reset_pipe(2 downto 0)&'0'; end if;
+  clock_source : entity work.chess_clock generic map(MULTIPLY_BY=>CLOCK_MULTIPLY_BY,DIVIDE_BY=>CLOCK_DIVIDE_BY)
+    port map(reference=>MAX10_CLK1_50,reset=>not KEY(0),clock_out=>engine_clk,locked=>pll_locked);
+  process(engine_clk, KEY(0),pll_locked) begin
+    if KEY(0)='0' or pll_locked='0' then reset_pipe<=(others=>'1');
+    elsif rising_edge(engine_clk) then reset_pipe<=reset_pipe(2 downto 0)&'0'; end if;
   end process;
   reset<=reset_pipe(3);
-  process(MAX10_CLK1_50) begin
-    if rising_edge(MAX10_CLK1_50) then key_meta<=KEY(1); key_sync<=key_meta; end if;
+  process(engine_clk) begin
+    if rising_edge(engine_clk) then key_meta<=KEY(1); key_sync<=key_meta; end if;
   end process;
-  receiver : uart_rx port map(clk=>MAX10_CLK1_50,reset=>reset,high_speed=>'1',rx=>UART_RX_PIN,
+  receiver : uart_rx generic map(CLOCK_FREQ=>ENGINE_CLOCK_HZ) port map(clk=>engine_clk,reset=>reset,high_speed=>'1',rx=>UART_RX_PIN,
     rx_data=>rx_byte,rx_valid=>rx_valid,rx_frame_error=>rx_error);
-  transmitter : uart_tx port map(clk=>MAX10_CLK1_50,reset=>reset,high_speed=>'1',tx_start=>tx_start,
+  transmitter : uart_tx generic map(CLOCK_FREQ=>ENGINE_CLOCK_HZ) port map(clk=>engine_clk,reset=>reset,high_speed=>'1',tx_start=>tx_start,
     tx_data=>tx_byte,tx=>UART_TX_PIN,tx_ready=>tx_ready);
-  link : entity work.chess_uart_bridge port map(clk=>MAX10_CLK1_50,reset=>reset,
+  link : entity work.chess_uart_bridge generic map(CLOCK_HZ=>ENGINE_CLOCK_HZ) port map(clk=>engine_clk,reset=>reset,
     rx_valid=>rx_valid,rx_error=>rx_error,rx_data=>rx_byte,
     tx_ready=>tx_ready,tx_start=>tx_start,tx_data=>tx_byte,
     keys=>(1=>not key_sync,others=>'0'),panel=>panel,activity=>activity);

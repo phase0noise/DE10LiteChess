@@ -5,7 +5,7 @@ using the same **Pico W / 115200-baud UART / Wi-Fi webpage** workflow as the
 oscilloscope example. All RTL, firmware, artwork, web files, and build scripts
 are included here. Move this entire project folder wherever you want.
 
-The FPGA generates legal moves, runs the recurrent field and up to six-ply
+The FPGA generates legal moves, runs the recurrent field and up to eight-ply
 search with capture extensions, and chooses the computer's move. The Pico W hosts its own Wi-Fi network
 and serves the complete page from flash. The browser handles your moves,
 history, draw rules, and an independent check of the FPGA's complete legal set.
@@ -17,16 +17,20 @@ flowchart LR
     Phone["Phone / browser<br/>Board, game modes, clock, history"]
     Pico["Pico W<br/>Wi-Fi access point + HTTP server<br/>CRC-protected UART bridge"]
     API["FPGA command endpoint<br/>Position, policy, telemetry<br/>Generation-guarded move commit"]
-    Search["Search controller<br/>Iterative deepening + alpha-beta<br/>Capture extensions + evaluation"]
+    Search["Search controller<br/>Iterative deepening + PVS / alpha-beta<br/>Capture extensions + root ordering"]
+    Eval["4 evaluation + hash lanes<br/>King pressure + piece mobility<br/>Capture exchange ordering"]
+    Queue["4 banked move queues<br/>Registered comparison stages"]
     Spatial["64-square spatial fabric<br/>Concurrent attack and reach maps<br/>King-safety filter"]
     Field["Recurrent field<br/>64 signed cell values<br/>Shared update arithmetic"]
     RAM[("M9K block RAM<br/>Position cache, move queues<br/>Board stack, history, results")]
     Phone <-->|"Local Wi-Fi / HTTP"| Pico
     Pico <-->|"115200 baud · 3 wires"| API
-    subgraph MAX10["DE10-Lite · MAX 10 FPGA · 50 MHz"]
+    subgraph MAX10["DE10-Lite · MAX 10 FPGA · 75 MHz PLL clock"]
         API <--> Search
         Search <--> Spatial
         Search <--> RAM
+        Search <--> Eval
+        Search <--> Queue
         Field --> Search
         Spatial --> Field
     end
@@ -42,23 +46,29 @@ Inside the FPGA, the spatial fabric computes attack and reach maps through
 parallel connections between squares. A shared controller uses those maps to
 generate moves, reject moves that expose its king, and search replies. The
 search walks one speculative board at a time; block RAM stores the board
-stack, ordered moves and previously visited positions. The recurrent field
-adds a bounded spatial preference to the root move scores. Its 64 cell values
-are updated by shared arithmetic; there are not 64 separate search engines.
+stack, ordered moves and previously visited positions. The recurrent field's
+64 cell values use shared update arithmetic. Spatial mode ranks moves with
+that field; search mode uses consistent searched position values. There is
+one spatial fabric and one search controller, with parallel datapaths inside.
 
 A computer turn follows this path:
 
 1. Load the position, search settings and recent moves onto the FPGA.
 2. Settle the recurrent field and generate legal root moves.
-3. Search progressively deeper, reusing cached positions and pruning branches
-   with alpha-beta. The newest **complete** iteration supplies the result.
-4. Return candidates, scores, counters and a field snapshot to the browser.
+3. Search progressively deeper, trying the previous best move first and using
+   scout windows, alpha-beta and the position cache. The newest **complete**
+   iteration supplies the result.
+4. Return candidates with exact/bound labels, a continuation prefix, measured
+   phase counters and a field snapshot to the browser.
 5. Compare the complete FPGA legal set with the browser's independent rules,
    commit the FPGA-selected move with its position generation, and check the
    resulting board before showing it.
 
-The board clock is 50 MHz. The search controller advances once every four
-clocks to accommodate RAM and combinational paths; the spatial wiring works
+The board's 50 MHz oscillator feeds a PLL for the **75 MHz internal clock**,
+a 50% frequency increase. Setup, hold, recovery and removal pass at every
+available timing corner; worst setup slack is **2.293 ns**.
+The search controller advances once every four internal clocks to accommodate
+RAM and combinational paths; the spatial wiring works
 in parallel between those steps. The destination scanner uses the reach map
 to skip impossible squares. Pawn pushes and castling are explicitly included
 before the ordinary legality checks. This reduces work per searched node
@@ -66,14 +76,18 @@ without increasing the requested depth or removing moves.
 
 The datapath now restores **eight squares together**, computes all source
 eligibility bits concurrently, and evaluates **two pawn files in parallel**.
-These remove repeated controller steps throughout the search tree. Material,
-piece-placement and hash accumulation still visit one square per step; the
-next design stage is four evaluation lanes with matching hash-memory banks.
-See [docs/PARALLEL_ARCHITECTURE.md](docs/PARALLEL_ARCHITECTURE.md) for the
-implemented stages and the proposed wider evaluator.
+It also evaluates **four squares together**, reads **four hash banks** and
+selects moves from **four queue banks** through registered comparison stages.
+Long controller decoding ends at enabled request registers; short native-clock
+strobes drive RAM writes and exchange analysis. This addresses measured
+critical paths before increasing frequency. See
+[docs/ADVANCED_ENGINE.md](docs/ADVANCED_ENGINE.md) for the pipeline and
+[docs/build-results.txt](docs/build-results.txt) for qualified timing/resources.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a source map, a worked
-example, and the next engine improvements worth exploring.
+example and the console's measurements. The original
+[engine advancement plan](docs/ENGINE_ROADMAP.md) records the rationale for
+the stages now implemented.
 
 ## Play
 
@@ -101,7 +115,7 @@ example, and the next engine improvements worth exploring.
 
 The page includes all four promotions, undo, board flipping, game restoration
 after reload, PGN download, checkmate/stalemate, automatic draw rules, and
-threefold/fifty-move draw claims. Lookahead includes Spatial and 2 through 6 ply;
+threefold/fifty-move draw claims. Lookahead includes Spatial and 2 through 8 ply;
 the default targets **5 ply with a 10-second think budget**. Choose 3, 10, 20,
 or 30 seconds. The FPGA keeps the last complete iteration if time runs out,
 and the page shows the completed depth and cache reuse. The first complete
@@ -134,11 +148,14 @@ currently on the board, so promotions affect it correctly. En passant, capture
 promotions, undo and reload use the recorded game positions.
 
 The engine console below the game shows measured decision time, nodes, depth,
-node rate, alpha-beta cutoffs, matching cache probes, cache writes and legal
-root moves. Its trace uses UART samples, and its heatmap is the **last completed
+node rate, alpha-beta cutoffs, cache matches/answers/writes, root re-searches,
+capture exchange calls, device clock and deepest visited ply. A measured phase
+bar breaks down where FPGA cycles went. Its trace uses UART samples, and its
+heatmap is the **last completed
 recurrent-field snapshot**, with White at the bottom. Candidate scores and the
-chosen move's seven components come from the FPGA. Preference scores are
-relative move rankings, not win probabilities or a calibrated evaluation bar.
+chosen move's seven components come from the FPGA. Search candidates distinguish
+exact values from upper bounds; the captured continuation is checked for legal
+moves. Scores are not win probabilities or a calibrated evaluation bar.
 
 Wi-Fi startup matches the oscilloscope reference: `WiFi.softAP(...)` uses the
 Pico library's default AP configuration. The sketch does not force the mode or
@@ -154,28 +171,30 @@ and off-board drops leave the piece in place, and promotions still offer all
 four pieces. The page stays still for gestures that start on the board; start a
 swipe outside the board to scroll the page.
 
-The expanded engine uses a **4,096-entry position cache in M9K block RAM**,
-ordered alpha-beta search, iterative deepening, and up to four capture/promotion
-extension plies with check evasions. The parallel datapath uses **57.19% fewer
-decision cycles (2.34x throughput)** than release `8e713ca` on the deterministic
-three-ply fork/promotion comparison, preserving moves, candidate scores and
-node counts. This follows the earlier reach-map scanner improvement of 20.45%.
-These are measurements on two fixtures, not a general strength rating.
-See [docs/parallel-results.json](docs/parallel-results.json).
-Evaluation blends middlegame and endgame
-piece placement and includes passed/isolated/doubled pawns, bishop pairs, rook
-files, and king shelter. The fitted design uses **30,949 / 49,760 logic elements
-(62%)** and **917,128 / 1,677,312 memory bits (55%)**, occupying **125 / 182 M9K
-blocks (69%)**, with passing 50 MHz timing.
-The October 22 engine's independent mate-in-three regression found a winning first move
-in **12/12 positions**, compared with **2/12** for the previous engine. This is
-a focused tactical result, not an Elo estimate.
-The October 24 update checks legality, tactics, cache equivalence, deadlines and
-destination-scan equivalence; it does not rerun that longer strength benchmark.
-See [docs/ENGINE.md](docs/ENGINE.md) for the search design and controls. Load
-**both new FPGA and Pico images** for the expanded controls.
-The parallel-datapath update changes the FPGA images; the Pico image retains
-the mobile controls and engine console from `8e713ca`.
+The engine uses a **4,096-entry position cache in M9K block RAM**, iterative
+deepening, root principal-variation search and up to four capture/promotion
+extension plies with check evasions. Evaluation blends middlegame and endgame
+placement, pawn structure, bishop pairs, rook files and shelter, with new
+king-zone pressure and per-piece mobility terms. Capture exchange analysis
+improves ordering without removing legal choices.
+
+[docs/advancement-results.json](docs/advancement-results.json) isolates
+evaluation lanes, root scheduling and queue banking against reference RTL.
+On its two deterministic fork/promotion fixtures, those stages reduce decision
+cycles from **1,573,992 to 276,828 (82.4% fewer)** while preserving the exact
+best values and valid candidate bounds. New positional terms and exchange
+ordering are disabled for that isolated comparison.
+[docs/VALIDATION.md](docs/VALIDATION.md) records timing, tactics, depth-eight
+search, deadline and browser checks. Earlier measurements remain in
+[parallel-results.json](docs/parallel-results.json) and
+[strength-results.json](docs/strength-results.json), with their original scope.
+Cycle savings and tactical regressions do not establish an Elo gain; equal-time
+games would measure that. See [docs/ENGINE.md](docs/ENGINE.md) for controls.
+Load **both matching FPGA and Pico images** for protocol 5 and the new console.
+
+The routed design uses **39,982 / 49,760 logic elements (80%)**, **987,168
+memory bits (59%)**, **133 / 182 M9Ks (73%)**, 73 nine-bit DSP elements and one
+PLL. This task built the images without programming the physical boards.
 
 **KEY0** resets the endpoint. **KEY1** starts evaluation on the currently loaded
 position for bench diagnostics. LEDR9 indicates engine activity, LEDR8 the side
@@ -198,8 +217,9 @@ powershell -ExecutionPolicy Bypass -File tools/build_pico.ps1
 ```
 
 The scripts produce the SOF, POF, and UF2 in `output_files/`. Builds never upload
-automatically. `build_fpga.ps1` rejects failing setup/hold/recovery/removal
-timing and incomplete external-port timing coverage. Both build scripts use
+automatically. `build_fpga.ps1` builds an isolated source snapshot and promotes
+images only after setup/hold/recovery/removal, external timing coverage and
+source-hash checks pass. Failed candidates stay in `.cache/`. Both scripts use
 paths relative to their own project; their executable paths can be overridden.
 
 Run `powershell -ExecutionPolicy Bypass -File tools/package.ps1` after building

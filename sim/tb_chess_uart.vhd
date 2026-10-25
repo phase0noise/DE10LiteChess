@@ -79,12 +79,12 @@ begin
       wait for 1 us;
     end;
     procedure status_read is
-    begin packet(0):=x"00";token:=token+1;send(1);response(32);end;
+    begin packet(0):=x"00";token:=token+1;send(1);response(40);end;
   begin
     reset<='1';wait for 200 ns;wait until falling_edge(clk);reset<='0';wait for 20 us;
     status_read;
-    assert received(10)=x"53" and received(11)=x"43" and received(12)=x"46" and received(13)=x"31" report "status pipeline corrupted" severity failure;
-    assert received(25)=x"04" report "wrong chess protocol" severity failure;
+    assert received(10)=x"53" and received(11)=x"43" and received(12)=x"46" and received(13)=x"32" report "status pipeline corrupted" severity failure;
+    assert received(25)=x"05" report "wrong chess protocol" severity failure;
 
     -- Lost reply / retry cannot reset the factual position twice.
     packet(0):=x"0A";token:=token+1;send(1);response(1);
@@ -120,17 +120,17 @@ begin
       packet(12):=x"05";packet(42):=x"0A";packet(43):=x"04";packet(44):=x"01";
       case bad is
         when 0=>packet(12):=x"01";
-        when 1=>packet(12):=x"07";
+        when 1=>packet(12):=x"09";
         when 2=>packet(42):=x"3D";
         when 3=>packet(43):=x"05";
         when others=>packet(44):=x"02";
       end case;
       token:=token+1;send(66);response(1,3);
     end loop;
-    packet(12):=x"06";packet(42):=x"0A";packet(43):=x"04";packet(44):=x"01";
+    packet(12):=x"08";packet(42):=x"0A";packet(43):=x"04";packet(44):=x"01";
     token:=token+1;send(66);response(1);
     packet(0):=x"0C";token:=token+1;send(2);response(64);
-    assert received(20)=x"06" and received(50)=x"0A" and received(51)=x"04" and received(52)=x"01"
+    assert received(20)=x"08" and received(50)=x"0A" and received(51)=x"04" and received(52)=x"01"
       report "expanded policy upload/readback mismatch" severity failure;
     packet(0):=x"0D";
     packet(12):=x"00";token:=token+1;send(66);response(1);
@@ -143,7 +143,7 @@ begin
     best:=to_integer(unsigned(received(20)))*256+to_integer(unsigned(received(21)));
     gen:=to_integer(unsigned(received(33)));
     assert legal=20 report "wrong starting legal set" severity failure;
-    packet(0):=x"12";token:=token+1;send(1);response(20);
+    packet(0):=x"12";token:=token+1;send(1);response(128);
     assert received(18)=x"00" and received(19)=x"04" and received(20)=x"00" and received(21)=x"02"
       report "expanded search telemetry framing mismatch" severity failure;
     expected(1+16*64):=true;expected(1+18*64):=true;

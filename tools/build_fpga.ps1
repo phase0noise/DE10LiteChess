@@ -1,6 +1,13 @@
 param([string]$Quartus = 'C:/intelFPGA_lite/23.1std/quartus/bin64/quartus_sh.exe')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$buildRoot = Join-Path $projectRoot ('.cache/fpga-build-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $buildRoot,(Join-Path $buildRoot 'rtl'),(Join-Path $buildRoot 'tools'),(Join-Path $buildRoot '.cache') -Force | Out-Null
+$inputs = @('de10_chess.qpf','de10_chess.qsf','de10_chess.sdc','tools/check_timing.tcl')
+$inputs += Get-ChildItem -LiteralPath (Join-Path $projectRoot 'rtl') -File | ForEach-Object { 'rtl/' + $_.Name }
+foreach ($name in $inputs) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination (Join-Path $buildRoot $name) }
+Set-Content -LiteralPath (Join-Path $projectRoot '.cache/fpga-last-build.txt') -Value $buildRoot
+Write-Host "Isolated FPGA candidate: $buildRoot"
 $mappedDrive = $null
 $pushed = $false
 try {
@@ -8,7 +15,7 @@ try {
     foreach ($letter in @('Q','R','S','T','U','V','W','X','Y','Z')) {
         $candidate = "${letter}:"
         if (-not (Test-Path "${candidate}\\")) {
-            & subst.exe $candidate $projectRoot
+            & subst.exe $candidate $buildRoot
             if ($LASTEXITCODE -eq 0) { $mappedDrive = $candidate; break }
         }
     }
@@ -29,6 +36,15 @@ try {
             throw "Incomplete timing coverage: $($row.Groups[1].Value)"
         }
     }
+    # Publish only a qualified candidate made from the still-current inputs.
+    foreach ($name in $inputs) {
+        if ((Get-FileHash -LiteralPath (Join-Path $projectRoot $name)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $buildRoot $name)).Hash) {
+            throw "Build input changed during compilation: $name. Candidate retained; rebuild before publishing."
+        }
+    }
+    New-Item -ItemType Directory -Path (Join-Path $projectRoot 'output_files') -Force | Out-Null
+    Get-ChildItem -LiteralPath (Join-Path $buildRoot 'output_files') -File | Copy-Item -Destination (Join-Path $projectRoot 'output_files')
+    Get-ChildItem -LiteralPath (Join-Path $buildRoot '.cache') -Filter 'critical-*.rpt' | Copy-Item -Destination (Join-Path $projectRoot '.cache')
     Write-Host "FPGA image: $projectRoot/output_files/de10_chess.sof"
 } finally {
     if ($pushed) { Pop-Location }
