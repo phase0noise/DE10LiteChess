@@ -3,7 +3,7 @@
 The advancement stages are implemented in RTL and the Pico-hosted client.
 Build qualification and measured clock/resource figures are recorded in
 [build-results.txt](build-results.txt) and [VALIDATION.md](VALIDATION.md).
-The original design proposal remains in [ENGINE_ROADMAP.md](ENGINE_ROADMAP.md).
+The original design proposal remains in [ENGINE_ROADMAP.md](history/ENGINE_ROADMAP.md).
 
 ## Datapath
 

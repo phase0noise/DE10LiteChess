@@ -100,5 +100,5 @@ Source/image SHA-256 fingerprints are in output_files/build_manifest.json.
 
 HISTORICAL FIRST PARALLEL RELEASE (7b75290)
 50 MHz; 30949 logic elements; 125 M9Ks; 45 nine-bit DSP elements; no PLL.
-Its 3582792 -> 1533784 cycle comparison is retained in parallel-results.json.
+Its 3582792 -> 1533784 cycle comparison is retained in history/parallel-results.json.
 This is an older evaluator/workload, separate from the measurements above.

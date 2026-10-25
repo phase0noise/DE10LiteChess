@@ -104,14 +104,14 @@ enumerating every defender reply. Quiescence is disabled to isolate normal
 lookahead. [advanced-strength-results.json](advanced-strength-results.json)
 records the two completed cases out of twelve, one for each color; both chose
 an independently proven winning move. The remaining optional cases were not
-completed. The historical [strength-results.json](strength-results.json)
+completed. The historical [strength-results.json](history/strength-results.json)
 records an October 22 baseline of 12/12 for the then-expanded engine versus
 2/12 for its three-ply predecessor. No paired-game Elo or equal-time win-rate
 measurement has been performed.
 
-Historical [parallel-results.json](parallel-results.json) retains the first
+Historical [parallel-results.json](history/parallel-results.json) retains the first
 50 MHz parallel release's 3,582,792 to 1,533,784 cycle reduction on two fixtures
-(2.336x). [destination-results.json](destination-results.json) retains its older
+(2.336x). [destination-results.json](history/destination-results.json) retains its older
 20.45% destination-scan reduction. Those records use earlier evaluators and
 workloads; they are not current timing/resource figures, and their speedups
 should not be multiplied into the new comparison.

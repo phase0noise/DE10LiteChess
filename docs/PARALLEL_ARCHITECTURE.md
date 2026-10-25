@@ -82,6 +82,6 @@ was:
 | Plus paired pawn-file arithmetic | 1,533,784 |
 
 That 57.19% cycle reduction / 2.336x throughput belongs to the historical
-fixtures and evaluator. [parallel-results.json](parallel-results.json) retains
+fixtures and evaluator. [parallel-results.json](history/parallel-results.json) retains
 that record. Current resource, clock and comparison results are recorded
 separately; speedups from different workloads should not be multiplied.

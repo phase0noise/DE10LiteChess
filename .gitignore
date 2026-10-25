@@ -1,16 +1,22 @@
+# Local tools, Quartus databases and simulator scratch files.
 .cache/
 db/
 incremental_db/
-output_files/*
-!output_files/.gitkeep
-!output_files/de10_chess.sof
-!output_files/de10_chess.pof
-!output_files/pico_chess.uf2
-!output_files/build_manifest.json
-__pycache__/
-*.pyc
 *.qws
 work/
 transcript
 vsim.wlf
 debug.log
+.cnxerr
+qmegawiz_errors_log.txt
+
+# Keep the programming images and their manifest; ignore other build output.
+output_files/*
+!output_files/de10_chess.sof
+!output_files/de10_chess.pof
+!output_files/pico_chess.uf2
+!output_files/build_manifest.json
+
+# Python bytecode.
+__pycache__/
+*.pyc

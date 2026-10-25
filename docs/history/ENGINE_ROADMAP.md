@@ -7,8 +7,8 @@ registered control strobes, a PLL clock and eight-ply capability. Four banked
 move queues were added as well. The prospective wording below records the
 original design rationale and acceptance criteria.
 
-For the current implementation, read [ADVANCED_ENGINE.md](ADVANCED_ENGINE.md).
-[VALIDATION.md](VALIDATION.md) separates measured results from remaining
+For the current implementation, read [ADVANCED_ENGINE.md](../ADVANCED_ENGINE.md).
+[VALIDATION.md](../VALIDATION.md) separates measured results from remaining
 physical-board checks. Playing-strength gains still require equal-time games;
 the implemented mechanisms alone do not establish a rating.
 
