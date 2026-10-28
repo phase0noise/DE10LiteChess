@@ -17,6 +17,22 @@ output_files/*
 !output_files/pico_chess.uf2
 !output_files/build_manifest.json
 
-# Python bytecode.
+# Local environments, dependencies and Python caches.
+.venv/
+venv/
+env/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 __pycache__/
-*.pyc
+*.py[cod]
+
+# Local credentials and editor/OS metadata.
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

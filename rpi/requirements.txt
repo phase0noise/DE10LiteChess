@@ -1,0 +1,4 @@
+# The HTTP app uses only Python's standard library.
+# start.py installs the native SPI driver through Raspberry Pi OS packages.
+# This list is only for users who install the driver with pip themselves.
+spidev; platform_system == "Linux"

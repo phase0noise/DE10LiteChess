@@ -9,10 +9,12 @@ try {
     foreach ($name in $artifacts) {
         if (-not (Test-Path -LiteralPath $name)) { throw "Missing release artifact: $name" }
     }
-    $files = @('README.md','.gitignore','.gitattributes','de10_chess.qpf','de10_chess.qsf','de10_chess.sdc')
-    foreach ($folder in @('rtl','firmware','web','tools','sim','tests','docs')) {
+    $files = @('README.md','AGENTS.md','.gitignore','.gitattributes','de10_chess.qpf','de10_chess.qsf','de10_chess.sdc')
+    foreach ($folder in @('rtl','firmware','web','rpi','tools','sim','tests','docs')) {
         $files += Get-ChildItem -LiteralPath $folder -Recurse -File |
-            Where-Object { $_.FullName -notmatch '[\\/]__pycache__[\\/]|\.pyc$' } |
+            Where-Object {
+                $_.FullName -notmatch '[\\/](__pycache__|\.venv|venv|env|\.cache|\.pytest_cache|\.mypy_cache|\.ruff_cache|node_modules)[\\/]|\.py[cod]$|\.service(?:\.in)?$|[\\/]\.env(?:\..*)?$'
+            } |
             ForEach-Object { $_.FullName.Substring($projectRoot.Length+1).Replace('\','/') }
     }
     $files += $artifacts
@@ -56,7 +58,9 @@ try {
         physicalBoardAcceptance = 'Not performed; see docs/VALIDATION.md'
         sha256 = $hashes
     }
-    $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath output_files/build_manifest.json -Encoding UTF8
+    $manifestJson = ($manifest | ConvertTo-Json -Depth 5).Replace("`r`n", "`n") + "`n"
+    [System.IO.File]::WriteAllText((Join-Path $projectRoot 'output_files/build_manifest.json'),
+        $manifestJson, [System.Text.UTF8Encoding]::new($false))
     $files += 'output_files/build_manifest.json'
     $stage = Join-Path $projectRoot ('.cache/release-' + [Guid]::NewGuid().ToString('N') + '/DE10LiteChess')
     New-Item -ItemType Directory -Path $stage -Force | Out-Null

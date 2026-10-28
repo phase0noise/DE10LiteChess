@@ -105,6 +105,16 @@ Captured pieces show traditional points: **1 / 3 / 3 / 5 / 9**. The engine
 console shows measured cycle phases, search activity and the field heatmap.
 Undo, promotion, board flipping and PGN export are included.
 
+## Raspberry Pi / DE0-CV
+
+For the **DE0-CV + Raspberry Pi SPI** port, the standalone [rpi folder](rpi/README.md)
+contains the complete Pi app. Copy it to the Pi and run `python3 start.py`.
+It keeps the Pi's existing network and sets up SPI on the first run.
+This port requires the matching DE0-CV FPGA image.
+
+Build its standalone ZIP with `python3 tools/package_rpi.py`.
+The ZIP contains one flat `rpi/` folder and a SHA-256 manifest.
+
 ## Build and edit
 
 Use Quartus Prime Lite 23.1 and Arduino-Pico core 6.0.0:
@@ -128,6 +138,7 @@ run `web/embed_web.ps1` before an IDE upload; `build_pico.ps1` does this for you
 rtl/          FPGA engine, spatial fabric, RAM, PLL and UART
 firmware/     Pico W sketch and embedded webpage
 web/          Editable board UI, chess rules and FPGA client
+rpi/          Standalone Raspberry Pi SPI app for the DE0-CV port
 sim/          RTL simulation benches
 tests/        Independent rules, search and protocol checks
 tools/        Build, program, package and verification scripts
