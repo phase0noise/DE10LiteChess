@@ -1,76 +1,121 @@
 # DE10-Lite Chess
 
-A hardware chess engine for the Terasic DE10-Lite, written in VHDL. Legal move
-generation, position evaluation and search run on the MAX 10 FPGA. A Raspberry
-Pi Pico W serves a local web interface, so you can play from a phone or browser
-over Wi-Fi.
-
-[Architecture](docs/ARCHITECTURE.md) · [Engine](docs/ENGINE.md) ·
-[UART protocol](docs/UART_PROTOCOL.md) · [Validation](docs/VALIDATION.md)
+A chess engine written in VHDL for the DE10-Lite's MAX 10 FPGA. The hardware
+generates legal moves, evaluates positions and searches for a reply. A Pico W
+serves the board in a browser over local Wi-Fi.
 
 ## Features
 
-- Play either color against the FPGA, watch FPGA self-play, or use pass-and-play.
-- Search with iterative deepening and alpha-beta pruning, from 2 to 8 plies.
-  The default is 5 plies with a 10-second budget.
-- Switch to Spatial mode for move selection using a programmable 64-cell
-  recurrent field. Speed round uses this mode when the human clock expires.
-- Use touch or mouse controls, promotion choices, undo, board flipping and PGN
-  export. The engine console shows search depth, nodes, timing and a field heatmap.
+- Play White or Black against the FPGA, watch it play both sides, or play locally
+  with another person.
+- Set search depth from 2 to 8 plies and choose a time limit. Defaults are
+  5 plies and 10 seconds per move.
+- Castling, en passant, all four promotion choices, undo and PGN export.
+- View the searched line, move scores, completed depth, node count and time spent
+  in each engine phase. Spatial mode has a board heatmap.
+- Speed round gives the human a clock; on expiry, the FPGA makes a Spatial move
+  for that side.
 
-The page, scripts and piece artwork are stored on the Pico W. Play needs no
-internet connection or external server.
+## Engine architecture
 
-## Architecture
+The engine uses one search controller and one working board. It tries a move,
+checks the resulting position, searches the reply and restores the board before
+trying the next branch. Parallel hardware handles attack maps, evaluation and
+RAM access within that search.
 
 ```mermaid
-flowchart LR
-    Browser["Browser<br/>Board, rules and game state"] <-->|"HTTP / Wi-Fi"| Pico["Pico W<br/>Web server and command bridge"]
-    Pico <-->|"UART / 115200 baud"| FPGA["DE10-Lite FPGA<br/>Move generation, evaluation and search"]
+flowchart TB
+    Board["Working board<br/>64 squares, turn, castling and en passant"]
+    Attacks["Wired attack fabric<br/>White attacks, Black attacks and source reach"]
+    Legal["Legal move generation<br/>Apply candidate and check king safety"]
+    Queue["Move ordering<br/>4-bank move queue + capture exchange analysis"]
+    Search["Search controller<br/>Iterative deepening, alpha-beta and root PVS"]
+    Eval["Position evaluation<br/>4 piece/hash lanes + 2 pawn-file lanes"]
+    Stack["Board-stack RAM<br/>14 levels, 8 squares per word"]
+    Cache["Position cache<br/>4,096 entries, full 64-bit keys"]
+    Field["Spatial move scoring<br/>64-cell recurrent field + root move terms"]
+    Results["Root-result RAM<br/>Working bank and completed bank"]
+
+    Board --> Attacks --> Legal --> Queue --> Search
+    Board --> Eval --> Search
+    Search <-->|"save / restore"| Stack
+    Search <-->|"scores / move hints"| Cache
+    Search -->|"try next move"| Board
+    Attacks --> Field
+    Legal -->|"Spatial mode"| Field
+    Field --> Results
+    Search --> Results
 ```
 
-| Component | Responsibility | Source |
-| --- | --- | --- |
-| Browser | Board controls, independent chess rules, game history, clocks and FPGA result verification | [web/](web) |
-| Pico W | Wi-Fi access point, embedded webpage, HTTP requests and framed UART commands | [firmware/pico_chess/](firmware/pico_chess) |
-| FPGA | Attack maps, legal moves, position evaluation, tree search and selected-move commit | [rtl/](rtl) |
+### Move generation
 
-The browser uploads a position and search settings. The FPGA chooses a move;
-the browser checks the complete legal move set, validates the returned
-continuation and requests a commit tied to that position's generation number.
-It then reads the resulting board back before updating the game.
+The attack fabric is wired across all 64 squares. Rook, bishop and queen rays
+pass through empty squares and stop at occupied ones. Pawns, knights and kings
+use fixed connections. Three planes produce White attacks, Black attacks and
+the selected piece's reach map at the same time.
 
-Inside the FPGA, one search controller explores one branch at a time. Parallel
-hardware handles work within each node: wired attack maps across all 64 squares,
-four evaluation/hash lanes, four move-queue banks, eight-square board restores
-and two pawn-file arithmetic lanes. The [architecture breakdown](docs/ARCHITECTURE.md)
-maps these blocks to their RTL and follows a move through the system.
+The controller adds pawn pushes and castling, applies each candidate to the
+working board, then checks whether its own king is attacked. Castling rook
+movement, en-passant captures and promotion are handled before that check.
+See [chess_spatial.vhd](rtl/chess_spatial.vhd) for the attack network.
 
-## Engine design
+### Search
 
-Search uses iterative deepening, alpha-beta pruning and root principal-variation
-search. A 4,096-entry position cache, capture exchange analysis, killer moves
-and quiet-move history improve move ordering. Evaluation combines material,
-piece placement, pawn structure, bishop pairs, rook files, king safety and
-mobility, blending middlegame and endgame values. Quiescence follows captures
-and promotions for up to four extra plies, with check evasions.
+Iterative deepening starts at two plies and works toward the chosen depth.
+Alpha-beta pruning cuts off branches that cannot improve the result. The
+previous iteration's best move goes first; later root moves use narrow
+principal-variation search windows and get a full search if they might be better.
 
-Each completed iteration publishes a full result set. If the time budget
-expires during a later iteration, the previous completed result supplies the
-move. The first iteration is allowed to finish even if it exceeds the budget.
-Requested depth can therefore differ from completed depth.
+A 4,096-entry position cache reuses scores and supplies move-ordering hints.
+Captures, promotions, killer moves and quiet-move history guide the remaining
+order. The [capture exchange analyzer](rtl/chess_see.vhd) estimates recaptures
+to help order defended captures. At the horizon, quiescence follows captures
+and promotions for up to four more plies, with check evasions.
 
-Spatial mode ranks legal moves without searching replies. Its signed cell
-values evolve from neighboring cells, attack maps, programmable weights, bias
-and noise. The wired attack fabric and the recurrent field are separate parts
-of the design. [Engine details](docs/ENGINE.md) cover scoring, draws, cache
-reuse and result bounds.
+Two root-result RAM banks separate the current iteration from the last
+completed one. If time expires partway through a deeper search, the completed
+bank supplies the move. The first iteration is allowed to finish even if it
+exceeds the time limit.
 
-## Hardware setup
+### Evaluation and memory
 
-You need a **DE10-Lite**, a **Raspberry Pi Pico W**, USB connections for power
-and programming, and three jumper wires. Connect the UART signals below with
-**3.3 V logic** and a shared ground:
+Four evaluation lanes process four squares per controller enable, with four
+matching Zobrist ROM banks generating the position key. Evaluation combines
+material, piece placement, pawn structure, bishop pairs, rook files, king
+shelter, king pressure and mobility. Middlegame and endgame scores blend as
+material comes off; two arithmetic lanes handle pawn-file terms.
+
+M9K block RAM holds the position cache, per-level move queues, board stack and
+root results. Board saves and restores transfer eight squares in each 32-bit
+word. Four move-queue banks feed registered comparisons to select the next move.
+Fourteen stack levels allow for normal search, quiescence and check evasions.
+
+The controller and evaluation arithmetic are in
+[chess_engine.vhd](rtl/chess_engine.vhd); the banked queues, cache, history and
+hash ROMs are in [chess_search_memory.vhd](rtl/chess_search_memory.vhd).
+[Search engine details](docs/ENGINE.md) cover scoring, draw handling and cache reuse.
+
+### Spatial mode
+
+Spatial mode chooses among legal moves without searching replies. A recurrent
+field stores one signed value per square. Shared arithmetic updates those
+values using neighboring cells, attack maps, programmable weights, bias and
+noise, then the engine uses the field alongside capture and positional terms
+to score each move. The field and its policy settings use
+[chess_cell_memory.vhd](rtl/chess_cell_memory.vhd).
+
+The wired attack fabric is shared by both modes. Search mode uses the searched
+position score; Spatial mode uses the root move preferences. The console can
+show the completed field snapshot in either mode.
+
+## Playing
+
+The Pico W hosts the page, scripts and piece artwork. Once connected, play
+needs no internet access. The browser keeps game history and clocks, compares
+the FPGA's legal moves with its own rules, and checks the board after the
+chosen move is committed.
+
+Connect these **3.3 V** UART signals and share ground:
 
 | Pico W | DE10-Lite GPIO header |
 | --- | --- |
@@ -78,88 +123,45 @@ and programming, and three jumper wires. Connect the UART signals below with
 | GP1 / RX, physical pin 2 | GPIO[4] / TX, FPGA pin V8 |
 | GND | GND |
 
-1. Program the DE10-Lite with [de10_chess.sof](output_files/de10_chess.sof)
-   using Quartus Programmer. Select the MAX 10 **10M50DAF484C7G** device.
+1. Load [de10_chess.sof](output_files/de10_chess.sof) with Quartus Programmer.
+   The device is **10M50DAF484C7G**.
 2. Hold **BOOTSEL** while plugging in the Pico W, then copy
    [pico_chess.uf2](output_files/pico_chess.uf2) to its **RPI-RP2** drive.
-3. On your phone or computer, join **FPGA-Chess**, password **fpgachess**.
+3. Join **FPGA-Chess**, password **fpgachess**.
 4. Open **http://192.168.4.1/** and wait for the FPGA connection.
    Pico USB serial at 115200 baud prints the address at startup.
 
-Use the FPGA and Pico images from the same checkout. The SOF is volatile;
-reload it after the FPGA loses power. If the page opens but the engine does
-not connect, check TX/RX and ground, press **KEY0** on the DE10-Lite and reconnect.
+Load matching FPGA and Pico images. Reload the SOF after the DE10-Lite loses
+power. If the page opens but the engine does not connect, check TX/RX and
+ground, press **KEY0** on the DE10-Lite and reconnect.
 
-## Build and verify
+## FPGA footprint
 
-The build scripts use Windows PowerShell. The recorded build uses **Quartus
-Prime Lite 23.1std.1**, **Arduino CLI** and **Arduino-Pico core 6.0.0**. Run from
-the repository root:
+The recorded October 24, 2026 implementation uses the board's 50 MHz reference
+and a PLL to run at 75 MHz. The search controller advances every four clocks;
+UART, RAM ports and the capture exchange pipeline use the native clock.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/build_fpga.ps1
-powershell -ExecutionPolicy Bypass -File tools/build_pico.ps1
-```
-
-Outputs go into `output_files/`. The FPGA script compiles an isolated source
-snapshot and checks timing at every available corner before replacing the
-programming images. These commands build without programming either board.
-Use `-Quartus` or `-ArduinoCli` to supply tool paths when needed.
-
-For Arduino IDE, open [pico_chess.ino](firmware/pico_chess/pico_chess.ino) and
-select **Raspberry Pi Pico W**, **133 MHz**, **Pico SDK USB**, **2 MB (no FS)**.
-Edit the UI in `web/`; `build_pico.ps1` embeds it automatically. Before an IDE
-upload, run `web/embed_web.ps1` to regenerate the committed `web_page.h`.
-
-Verification uses Python, Node.js, GHDL and a C++ compiler. The setup script
-downloads GHDL and the independent python-chess rules oracle into `.cache/`:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/setup_test_tools.ps1
-powershell -ExecutionPolicy Bypass -File tools/verify.ps1
-```
-
-The verification script checks browser rules, UART framing, RTL move legality,
-memory, arithmetic and search behavior. Add `-Browser` for the Chrome UI smoke
-test or `-Strength` for the longer mate fixtures. These checks run without
-physical boards; [validation](docs/VALIDATION.md) records their scope.
-
-To build the portable project ZIP and refresh its SHA-256 manifest:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File tools/package.ps1
-```
-
-## Recorded build
-
-The October 24, 2026 routed build targets **10M50DAF484C7G**:
-
-| Item | Result |
+| Resource | Usage |
 | --- | --- |
-| Internal clock | 75 MHz from the board's 50 MHz reference |
 | Logic elements | 39,982 / 49,760 (80%) |
 | M9K blocks | 133 / 182 (73%) |
 | Worst setup slack | +2.293 ns |
 | Minimum hold slack | +0.113 ns |
 
-See the [build report](docs/build-results.txt) for all timing corners and
-resource figures. Physical-board UART/Wi-Fi acceptance for these images is
-still pending; the [validation record](docs/VALIDATION.md) lists completed
-checks and the board test procedure. Playing strength has no measured Elo rating.
+The [timing report](docs/build-results.txt) has the full resource and timing
+figures. The [validation record](docs/VALIDATION.md) lists completed checks and
+physical-board acceptance still to be done for these images.
 
-## Repository layout
+## Source layout
 
 | Path | Contents |
 | --- | --- |
-| [rtl/](rtl) | Chess engine, spatial fabric, block RAM, exchange analyzer, PLL and UART |
-| [firmware/pico_chess/](firmware/pico_chess) | Pico W sketch, protocol parser and generated embedded page |
-| [web/](web) | Editable board UI, chess rules, FPGA client and artwork |
-| [sim/](sim) | VHDL testbenches and the simulation-only fast attack model |
-| [tests/](tests) | Independent rule fixtures, search comparisons and client/protocol checks |
-| [tools/](tools) | Build, program, verify and package scripts |
-| [docs/](docs/README.md) | Architecture, engine design, protocol and measured results |
-| [output_files/](output_files) | SOF, POF, UF2 and source/image SHA-256 manifest |
+| [rtl/](rtl) | Engine, attack fabric, RAM, capture exchange analyzer, clock and UART |
+| [firmware/pico_chess/](firmware/pico_chess) | Pico W web server and UART bridge |
+| [web/](web) | Browser board, chess rules, FPGA client and artwork |
+| [sim/](sim), [tests/](tests) | RTL testbenches, independent rule fixtures and search/protocol checks |
+| [tools/](tools) | Build, programming and packaging scripts |
+| [docs/](docs/README.md) | Detailed engine, pipeline and protocol documentation |
+| [output_files/](output_files) | FPGA/Pico programming images and SHA-256 manifest |
 
 The Quartus project, pin assignments and timing constraints are at the root.
-Compiler databases and local dependencies stay out of Git. Earlier plans and
-measurements are kept in [docs/history/](docs/history).

@@ -1,7 +1,7 @@
 # DE10-Lite Chess documentation
 
-Start with the [project README](../README.md) for hardware wiring, programming
-images, build commands and verification setup.
+Start with the [project README](../README.md) for the engine overview, hardware
+wiring and programming images.
 
 ## Design
 
