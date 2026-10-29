@@ -1,18 +1,27 @@
-# Documentation
+# DE10-Lite Chess documentation
 
-| Read | Covers |
+Start with the [project README](../README.md) for hardware wiring, programming
+images, build commands and verification setup.
+
+## Design
+
+| Document | Covers |
 | --- | --- |
-| [Engine](ENGINE.md) | Search, evaluation, move ordering, draw handling and RAM tables |
-| [System architecture](ARCHITECTURE.md) | Browser, Pico and FPGA responsibilities; a turn from upload to commit |
-| [Hardware pipeline](ADVANCED_ENGINE.md) | Four-lane datapath, PVS, arithmetic stages and clock constraints |
-| [Parallel operations](PARALLEL_ARCHITECTURE.md) | Lane widths, queue banking and scalar reference configurations |
-| [UART protocol](UART_PROTOCOL.md) | Packets, commands, candidate bounds and telemetry layouts |
-| [Build results](build-results.txt) | Qualified 75 MHz timing, device resources and image sizes |
-| [Validation](VALIDATION.md) | Completed checks, measurement limits and physical-board status |
+| [System architecture](ARCHITECTURE.md) | Browser/Pico/FPGA boundaries, RTL modules, a complete turn, parallel work, clocking and memory |
+| [Search engine](ENGINE.md) | Search, evaluation, move ordering, draw handling, cache reuse and result publication |
+| [Hardware pipeline](ADVANCED_ENGINE.md) | Evaluation stages, root PVS, arithmetic and timing constraints |
+| [Parallel datapath](PARALLEL_ARCHITECTURE.md) | Lane widths, queue banking and scalar reference configurations |
+| [UART protocol](UART_PROTOCOL.md) | Framing, HTTP bridge, commands, candidate bounds and telemetry byte layouts |
 
-Current measurements: [datapath/search comparisons](advancement-results.json)
-and [completed mate cases](advanced-strength-results.json).
+## Build and validation records
 
-[history/](history) keeps the original engine proposal and older parallel,
-destination-scan and strength measurements. Those files describe earlier
-revisions; the current build results and validation record are linked above.
+| Record | Covers |
+| --- | --- |
+| [Build results](build-results.txt) | Recorded 75 MHz timing, fitted resources and image sizes |
+| [Validation](VALIDATION.md) | Completed checks, measurement limits and pending physical-board acceptance |
+| [Datapath/search comparisons](advancement-results.json) | Controlled lane, root-scheduling and queue comparisons |
+| [Completed mate cases](advanced-strength-results.json) | Results from the completed subset of the longer mate regression |
+
+[history/](history) contains the original engine proposal and earlier parallel,
+destination-scan and strength measurements. Those records describe previous
+revisions; use the build and validation records above for the current images.

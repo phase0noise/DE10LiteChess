@@ -10,7 +10,7 @@ try {
         if (-not (Test-Path -LiteralPath $name)) { throw "Missing release artifact: $name" }
     }
     $files = @('README.md','AGENTS.md','.gitignore','.gitattributes','de10_chess.qpf','de10_chess.qsf','de10_chess.sdc')
-    foreach ($folder in @('rtl','firmware','web','rpi','tools','sim','tests','docs')) {
+    foreach ($folder in @('rtl','firmware','web','tools','sim','tests','docs')) {
         $files += Get-ChildItem -LiteralPath $folder -Recurse -File |
             Where-Object {
                 $_.FullName -notmatch '[\\/](__pycache__|\.venv|venv|env|\.cache|\.pytest_cache|\.mypy_cache|\.ruff_cache|node_modules)[\\/]|\.py[cod]$|\.service(?:\.in)?$|[\\/]\.env(?:\..*)?$'
@@ -54,7 +54,7 @@ try {
         }
         ssid = 'FPGA-Chess'
         url = 'http://192.168.4.1/'
-        ipConfiguration = 'Arduino-Pico library default, same as oscilloscope reference; USB serial prints the runtime address'
+        ipConfiguration = 'Pico W access point; USB serial prints the runtime address'
         physicalBoardAcceptance = 'Not performed; see docs/VALIDATION.md'
         sha256 = $hashes
     }

@@ -1,13 +1,17 @@
-# Raspberry Pi app
+# DE10-Lite Chess
 
-The `rpi/` folder is a standalone DE0-CV SPI app. Keep every runtime file flat
-inside it and preserve one-command startup: `python3 start.py`.
+This project targets the Terasic DE10-Lite / MAX 10 10M50DAF484C7G, with a Pico W
+as the Wi-Fi and UART bridge. Chess move generation, evaluation and search live
+in `rtl/`; the Pico serves the interface and transports commands.
 
-Resolve files beside the running script. Never require a parent checkout,
-fixed username, installation directory, virtual environment or manual pip step.
-Moving or renaming the folder must not require setup again. Keep first-run Pi
-SPI setup automatic; keep the existing network and foreground operation.
+Edit browser assets in `web/`. Regenerate `firmware/pico_chess/web_page.h` with
+`web/embed_web.ps1` after UI changes; `tools/build_pico.ps1` does this automatically.
+Keep the embedded page self-contained, including scripts, styles and artwork.
 
-Use `tools/package_rpi.py` to build the standalone ZIP. Do not include local
-environments, dependency caches, bytecode or service templates. Test actual
-startup and HTTP requests from copied folders with third-party packages disabled.
+Use `tools/build_fpga.ps1` for FPGA builds and preserve its timing acceptance
+checks. Keep FPGA, firmware and browser protocol changes compatible with each
+other. `tools/verify.ps1` runs independent rules, protocol, RTL and search checks.
+
+Use `tools/package.ps1` to build the portable project ZIP and refresh the source
+and image manifest. Exclude compiler databases, local dependencies and caches.
+Document measured results separately from physical-board acceptance.
