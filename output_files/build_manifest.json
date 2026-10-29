@@ -54,7 +54,7 @@
                    "output_files/de10_chess.pof":  "a687424e8f335ab7efe00b52e222405f75a2b6d2248ac32ec85ec112a2d00294",
                    "output_files/de10_chess.sof":  "788fa7ae9f9a3678ca8dedd7a94fdd8321f93a703c8c40b43905b8f0d5be9198",
                    "output_files/pico_chess.uf2":  "5f9db5d838a3cf4bc9b7e26083c74835b5237db6d630268dd2a694ef4d68b513",
-                   "README.md":  "48cb8a3b857e0ec4a2892b96b31a6679f5a5f0fc39158fc780ffc20d2b20fbcc",
+                   "README.md":  "a387db80ed6bb67a5bf990db878a7ca9308834cff97a5c8c31dd2f40ba8330c3",
                    "rtl/chess_cell_memory.vhd":  "5b377f34a8816220a85690c33919a12090fe8f24f1024c362a583bdff0e595ee",
                    "rtl/chess_clock.vhd":  "253c484590ec66b15613ad010441ea4c42ab8e32e1392b937026a887499ce0b9",
                    "rtl/chess_engine.vhd":  "31127b7bfa068410bc31a3189cb23aeed5f174828add2d0f8608f218971447cd",

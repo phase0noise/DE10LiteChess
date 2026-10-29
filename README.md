@@ -1,8 +1,13 @@
 # DE10-Lite Chess
 
-A chess engine written in VHDL for the DE10-Lite's MAX 10 FPGA. The hardware
-generates legal moves, evaluates positions and searches for a reply. A Pico W
-serves the board in a browser over local Wi-Fi.
+A VHDL chess engine for the DE10-Lite's MAX 10 FPGA. Its spatial attack fabric
+is a wired 64-square network that computes attacks and piece reach for each
+position. The search controller uses that network to generate legal moves and
+explore replies with alpha-beta pruning. A Pico W serves the board over local
+Wi-Fi.
+
+The engine also has an optional Spatial mode, which uses a separate 64-cell
+recurrent field to score legal moves without searching replies.
 
 ## Features
 
@@ -12,56 +17,94 @@ serves the board in a browser over local Wi-Fi.
   5 plies and 10 seconds per move.
 - Castling, en passant, all four promotion choices, undo and PGN export.
 - View the searched line, move scores, completed depth, node count and time spent
-  in each engine phase. Spatial mode has a board heatmap.
+  in each engine phase. The field heatmap is available in either mode.
 - Speed round gives the human a clock; on expiry, the FPGA makes a Spatial move
   for that side.
 
 ## Engine architecture
 
-The engine uses one search controller and one working board. It tries a move,
-checks the resulting position, searches the reply and restores the board before
-trying the next branch. Parallel hardware handles attack maps, evaluation and
-RAM access within that search.
+The spatial attack fabric is shared by both decision modes. In the default
+Search mode, the controller repeatedly uses it on the working board as it
+explores moves and replies. In Spatial mode, the same legality checks feed a
+root move scorer driven by the recurrent field.
+
+One controller walks the search tree, saving and restoring one working board.
+The attack network evaluates all 64 squares concurrently; evaluation lanes and
+banked RAM speed up work within each searched position.
 
 ```mermaid
 flowchart TB
     Board["Working board<br/>64 squares, turn, castling and en passant"]
-    Attacks["Wired attack fabric<br/>White attacks, Black attacks and source reach"]
-    Legal["Legal move generation<br/>Apply candidate and check king safety"]
-    Queue["Move ordering<br/>4-bank move queue + capture exchange analysis"]
-    Search["Search controller<br/>Iterative deepening, alpha-beta and root PVS"]
-    Eval["Position evaluation<br/>4 piece/hash lanes + 2 pawn-file lanes"]
-    Stack["Board-stack RAM<br/>14 levels, 8 squares per word"]
-    Cache["Position cache<br/>4,096 entries, full 64-bit keys"]
-    Field["Spatial move scoring<br/>64-cell recurrent field + root move terms"]
-    Results["Root-result RAM<br/>Working bank and completed bank"]
+    Attacks["Spatial attack fabric - both modes<br/>White attacks, Black attacks and source reach"]
+    Legal["Legal move generation - both modes<br/>Apply candidate and check king safety"]
 
-    Board --> Attacks --> Legal --> Queue --> Search
-    Board --> Eval --> Search
-    Search <-->|"save / restore"| Stack
-    Search <-->|"scores / move hints"| Cache
-    Search -->|"try next move"| Board
-    Attacks --> Field
-    Legal -->|"Spatial mode"| Field
-    Field --> Results
-    Search --> Results
+    subgraph Tree["Search mode - default"]
+        Queue["Move ordering<br/>4-bank queue + capture exchange analysis"]
+        Search["Search controller<br/>Iterative deepening, alpha-beta and root PVS"]
+        Eval["Position evaluation<br/>4 piece/hash lanes + 2 pawn-file lanes"]
+        Stack["Board-stack RAM<br/>14 levels, 8 squares per word"]
+        Cache["Position cache<br/>4,096 entries, full 64-bit keys"]
+        Queue --> Search
+        Eval --> Search
+        Search <-->|"save / restore"| Stack
+        Search <-->|"scores / move hints"| Cache
+    end
+
+    Field["Root recurrent field<br/>64 signed cells; computed in both modes"]
+    Direct["Spatial mode - optional<br/>Score legal root moves without tree search"]
+    Heatmap["Field heatmap<br/>Completed snapshot in either mode"]
+    Results["Result RAM<br/>Move scores and selected move"]
+
+    Board --> Attacks --> Legal
+    Legal -->|"Search mode"| Queue
+    Board -->|"Each searched position"| Eval
+    Search -->|"Apply / restore moves"| Board
+    Search -->|"Searched scores"| Results
+    Attacks -->|"Root attack maps"| Field
+    Legal -->|"Spatial mode: root moves"| Direct
+    Field -->|"Field values"| Direct
+    Direct -->|"Spatial preferences"| Results
+    Field -.->|"Display only"| Heatmap
 ```
 
-### Move generation
+### Spatial attack fabric
 
-The attack fabric is wired across all 64 squares. Rook, bishop and queen rays
-pass through empty squares and stop at occupied ones. Pawns, knights and kings
-use fixed connections. Three planes produce White attacks, Black attacks and
-the selected piece's reach map at the same time.
+Here, "spatial" means that the circuit's connections follow chessboard
+geometry. Every square has logic connected to other squares according to the
+pieces' movement rules. Changing the working board changes the attack maps
+through those wires, so the controller can use them at every search node.
 
-The controller adds pawn pushes and castling, applies each candidate to the
-working board, then checks whether its own king is attacked. Castling rook
-movement, en-passant captures and promotion are handled before that check.
-See [chess_spatial.vhd](rtl/chess_spatial.vhd) for the attack network.
+For rooks, bishops and queens, each square receives rays from the appropriate
+neighboring squares. An empty square passes a ray onward; an occupied square
+stops it. A rook on a1 with a blocker on a3 therefore attacks a2 and a3, but
+does not reach a4 through a8 along that file. Knights use fixed L-shaped
+connections, kings use adjacent-square connections, and pawns use diagonal
+attack connections.
 
-### Search
+Three copies of this geometry run concurrently:
 
-Iterative deepening starts at two plies and works toward the chosen depth.
+- **White attacks:** squares attacked by any White piece.
+- **Black attacks:** squares attacked by any Black piece.
+- **Selected-source reach:** destinations reached by the one piece the move
+  generator is currently considering.
+
+These maps describe attacks and reach, not the complete set of legal moves.
+The controller filters friendly occupied destinations and adds pawn pushes,
+double pushes and castling. It applies each candidate, handles promotion or
+en passant, and reads the resulting enemy attack map to check its own king.
+That final check also rejects moves that expose the king by moving a pinned
+piece. Castling has additional path and attack checks.
+
+This attack network is used throughout normal tree search and in Spatial mode.
+Its implementation is in [chess_spatial.vhd](rtl/chess_spatial.vhd).
+
+### Search mode (default)
+
+For each legal move, the controller searches the opponent's replies using the
+same attack fabric and legality checks. It saves the board before descending
+and restores it before trying another branch. Iterative deepening starts at
+two plies and works toward the chosen depth.
+
 Alpha-beta pruning cuts off branches that cannot improve the result. The
 previous iteration's best move goes first; later root moves use narrow
 principal-variation search windows and get a full search if they might be better.
@@ -95,18 +138,24 @@ The controller and evaluation arithmetic are in
 hash ROMs are in [chess_search_memory.vhd](rtl/chess_search_memory.vhd).
 [Search engine details](docs/ENGINE.md) cover scoring, draw handling and cache reuse.
 
-### Spatial mode
+### Recurrent field and Spatial mode
 
-Spatial mode chooses among legal moves without searching replies. A recurrent
-field stores one signed value per square. Shared arithmetic updates those
-values using neighboring cells, attack maps, programmable weights, bias and
-noise, then the engine uses the field alongside capture and positional terms
-to score each move. The field and its policy settings use
-[chess_cell_memory.vhd](rtl/chess_cell_memory.vhd).
+The recurrent field is separate from the attack fabric. It stores one signed
+value per square in [chess_cell_memory.vhd](rtl/chess_cell_memory.vhd). Shared
+arithmetic updates the cells using neighboring values, root attack maps,
+programmable weights, bias and noise. The field settles for the uploaded
+position before move scoring; it is not recomputed for each position in the
+search tree.
 
-The wired attack fabric is shared by both modes. Search mode uses the searched
-position score; Spatial mode uses the root move preferences. The console can
-show the completed field snapshot in either mode.
+In **Spatial mode**, the engine combines field values with captures, safety,
+activity, move-history preferences and noise to score legal root moves. It
+chooses a move without exploring replies. This mode runs when selected in the
+depth control, or when speed round makes a move for a player whose clock expired.
+
+In **Search mode**, the chosen move comes from the searched position scores.
+Recurrent-field, habit and noise terms do not contribute to those scores. The
+field is still computed for the console heatmap, which is why a field snapshot
+appears even during an ordinary search.
 
 ## Playing
 
