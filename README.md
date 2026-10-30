@@ -6,8 +6,6 @@ position. The search controller uses that network to generate legal moves and
 explore replies with alpha-beta pruning. A Pico W serves the board over local
 Wi-Fi.
 
-The engine also has an optional Spatial mode, which uses a separate 64-cell
-recurrent field to score legal moves without searching replies.
 
 ## Features
 
