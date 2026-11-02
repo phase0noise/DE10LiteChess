@@ -6,6 +6,8 @@ position. The search controller uses that network to generate legal moves and
 explore replies with alpha-beta pruning. A Pico W serves the board over local
 Wi-Fi.
 
+Feel free to use, modify, or play chess against this project
+
 <img width="720" height="1600" alt="1000000168" src="https://github.com/user-attachments/assets/7233e1cc-970a-4ce7-97d1-3be1779cdf59" />
 
 
